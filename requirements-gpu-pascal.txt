@@ -1,6 +1,5 @@
 # NVIDIA Pascal profile for GTX 10-series cards (compute capability 6.1).
-# Install this profile instead of requirements-gpu.txt on GTX 1050 Ti.
---extra-index-url https://download.pytorch.org/whl/cu118
-torch==2.3.1+cu118
-torchvision==0.18.1+cu118
+# install_pascal_gpu.ps1 selects the official CUDA 11.8 wheel index.
+torch==2.3.1
+torchvision==0.18.1
 onnxruntime-gpu==1.17.3
