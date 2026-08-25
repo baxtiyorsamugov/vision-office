@@ -1,36 +1,60 @@
+import ctypes
+import os
+
 import insightface
 import numpy as np
-import onnxruntime as ort # Добавили импорт
+import onnxruntime as ort
 
 class FaceRecognizer:
     def __init__(self, det_size=(320, 320)):
-        providers = ort.get_available_providers()
-        self.using_cuda = "CUDAExecutionProvider" in providers
-        if self.using_cuda:
-            try:
-                # ONNX Runtime finds CUDA/cuDNN DLLs supplied by the PyTorch wheel.
-                ort.preload_dlls()
-            except (AttributeError, OSError):
-                pass
-        active_providers = ["CUDAExecutionProvider", "CPUExecutionProvider"] if self.using_cuda else ["CPUExecutionProvider"]
+        self.using_cuda = self._cuda_runtime_ready()
+        self.app = self._create_app(det_size, self.using_cuda)
+
+        if self.using_cuda and not self._sessions_use_cuda():
+            print("[FaceID] CUDA provider is unavailable. Using CPU recognition.")
+            self.using_cuda = False
+            self.app = self._create_app(det_size, use_cuda=False)
+
+        print(f"[FaceID] Provider: {'CUDA' if self.using_cuda else 'CPU'}")
+
+    @staticmethod
+    def _cuda_runtime_ready():
+        if "CUDAExecutionProvider" not in ort.get_available_providers():
+            return False
 
         try:
-            self.app = insightface.app.FaceAnalysis(
-                name="buffalo_l",
-                allowed_modules=["detection", "recognition"],
-                providers=active_providers,
-            )
-            self.app.prepare(ctx_id=0 if self.using_cuda else -1, det_size=det_size)
-        except Exception:
-            if not self.using_cuda:
-                raise
-            self.using_cuda = False
-            self.app = insightface.app.FaceAnalysis(
-                name="buffalo_l",
-                allowed_modules=["detection", "recognition"],
-                providers=["CPUExecutionProvider"],
-            )
-            self.app.prepare(ctx_id=-1, det_size=det_size)
+            ort.preload_dlls()
+        except (AttributeError, OSError):
+            return False
+
+        if os.name != "nt":
+            return True
+
+        required_dlls = ("cudnn64_9.dll", "cublas64_12.dll", "cublasLt64_12.dll")
+        try:
+            for dll_name in required_dlls:
+                ctypes.WinDLL(dll_name)
+        except OSError:
+            print("[FaceID] CUDA/cuDNN runtime is missing. Using CPU recognition.")
+            return False
+        return True
+
+    @staticmethod
+    def _create_app(det_size, use_cuda):
+        providers = ["CUDAExecutionProvider", "CPUExecutionProvider"] if use_cuda else ["CPUExecutionProvider"]
+        app = insightface.app.FaceAnalysis(
+            name="buffalo_l",
+            allowed_modules=["detection", "recognition"],
+            providers=providers,
+        )
+        app.prepare(ctx_id=0 if use_cuda else -1, det_size=det_size)
+        return app
+
+    def _sessions_use_cuda(self):
+        return all(
+            "CUDAExecutionProvider" in model.session.get_providers()
+            for model in self.app.models.values()
+        )
 
     def get_embedding(self, face_img):
         faces = self.app.get(face_img)

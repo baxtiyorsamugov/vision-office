@@ -50,6 +50,21 @@ python main.py
 
 Должны появиться `True` для CUDA и `CUDAExecutionProvider` в списке ONNX Runtime.
 Для панели управления: `streamlit run ui\app.py` и открыть `http://localhost:8501`.
+
+## Если в консоли красные сообщения CUDA/cuDNN
+
+Сообщения о `cudnn64_9.dll` или `cublasLt64_12.dll` означают, что ONNX Runtime не получил CUDA-библиотеки. Камера может работать, но распознавание перейдёт на CPU и будет медленнее.
+
+На ПК с NVIDIA видеокартой закройте программу, активируйте `.venv` и переустановите GPU-пакеты:
+
+```powershell
+cd C:\VisionOffice
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade --force-reinstall -r requirements-gpu.txt
+python test_gpu.py
+```
+
+Также обновите драйвер NVIDIA. Устанавливать отдельный CUDA Toolkit не нужно: необходимые библиотеки поставляются вместе с PyTorch. Если видеокарты NVIDIA нет, ничего устанавливать не надо: Vision Office автоматически использует CPU без красных сообщений.
 # Creating the archive on the source computer
 
 Use the prepared archive script instead of adding files to WinRAR manually. It creates a safe snapshot of `data/office.db`, so the program may stay open.
