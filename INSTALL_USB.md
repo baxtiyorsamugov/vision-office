@@ -82,7 +82,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\install_pascal_gpu.ps1
 ```
 
-Скрипт устанавливает PyTorch 2.3.1 с CUDA 11.8 и ONNX Runtime 1.17.3, которые совместимы между собой и с Pascal. При отсутствии `offline-wheels` нужен интернет.
+Скрипт устанавливает PyTorch 2.3.1 с CUDA 11.8 и ONNX Runtime 1.17.3, которые совместимы между собой и с Pascal. Если в `offline-wheels` нет именно Pascal-пакетов, скрипт автоматически загрузит их из интернета.
 # Creating the archive on the source computer
 
 Use the prepared archive script instead of adding files to WinRAR manually. It creates a safe snapshot of `data/office.db`, so the program may stay open.
