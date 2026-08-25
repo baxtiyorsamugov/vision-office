@@ -1,0 +1,23 @@
+system:
+  gpu_enabled: true
+  resolution: [640, 640]
+  log_level: "INFO"
+
+cameras:
+  - id: "reception_01"
+    rtsp_url: "rtsp://USERNAME:PASSWORD@CAMERA_IP:554/Streaming/Channels/101"
+    is_active: true
+    zone_type: "clean_zone"
+
+ai:
+  yolo_model: "yolov8n.pt"
+  conf_threshold: 0.5
+  iou_threshold: 0.45
+
+database:
+  type: "sqlite"
+  path: "data/office.db"
+
+security:
+  night_mode_start: "20:00"
+  night_mode_end: "07:30"

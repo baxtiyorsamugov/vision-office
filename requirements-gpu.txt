@@ -1,0 +1,8 @@
+# NVIDIA GPU runtime for Windows / Python 3.10.
+# The RTX A1000 driver supports this CUDA 12.8 build.
+--extra-index-url https://download.pytorch.org/whl/cu128
+torch==2.11.0+cu128
+torchvision==0.26.0+cu128
+
+# CUDA 12.x runtime available for this Python 3.10 environment.
+onnxruntime-gpu==1.23.2

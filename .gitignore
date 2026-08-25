@@ -1,0 +1,30 @@
+# Python
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# Generated archives
+*.zip
+
+# База данных
+data/*.db
+
+# Папки с медиа (блокируем ВСЁ внутри, кроме пустой папки)
+data/logs/*
+data/faces/*
+!data/faces/.gitkeep
+
+# Исключаем видеофайлы ВЕЗДЕ в проекте
+*.mp4
+*.avi
+*.mkv
+*.mov
+
+# Исключаем веса моделей
+*.pt
+*.onnx
+
+# Local configuration and credentials
+config/settings.yaml
+.env

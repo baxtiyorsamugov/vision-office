@@ -1,0 +1,23 @@
+# AI Core
+ultralytics==8.4.110      # Compatible with PyTorch 2.11 safe model loading
+insightface==0.7.3        # Face recognition
+onnxruntime-gpu==1.23.2   # CUDA 12.x runtime available for Python 3.10
+opencv-python-headless    # Для обработки видео
+numpy
+pillow
+
+# Backend & Database
+sqlalchemy                # ORM для MySQL/SQLite
+pymysql
+fastapi>=0.115,<1         # Integration API
+uvicorn[standard]         # API server
+
+# Dashboard
+streamlit
+plotly
+pandas
+
+# Tools
+python-telegram-bot
+pyyaml
+reportlab                 # Для генерации PDF-отчетов
