@@ -14,6 +14,12 @@ python -m pip download --only-binary=:all: --dest offline-wheels torch==2.11.0+c
 python -m pip download --only-binary=:all: --dest offline-wheels -r requirements.txt
 ```
 
+Для ПК с GTX 1050 Ti дополнительно скачайте совместимый Pascal-профиль:
+
+```powershell
+python -m pip download --only-binary=:all: --dest offline-wheels -r requirements-gpu-pascal.txt
+```
+
 Скопируйте `offline-wheels` на флешку внутрь папки `acs2`.
 
 ## 2. Подготовить новый ПК
@@ -65,6 +71,18 @@ python test_gpu.py
 ```
 
 Также обновите драйвер NVIDIA. Устанавливать отдельный CUDA Toolkit не нужно: необходимые библиотеки поставляются вместе с PyTorch. Если видеокарты NVIDIA нет, ничего устанавливать не надо: Vision Office автоматически использует CPU без красных сообщений.
+
+## NVIDIA GTX 1050 Ti / Pascal
+
+GTX 1050 Ti использует архитектуру Pascal (`compute capability 6.1`) и не совместима с современным профилем CUDA 12.8. Используйте отдельный профиль из проекта:
+
+```powershell
+cd C:\VisionOffice
+Set-ExecutionPolicy -Scope Process Bypass
+.\install_pascal_gpu.ps1
+```
+
+Скрипт устанавливает PyTorch 2.3.1 с CUDA 11.8 и ONNX Runtime 1.17.3, которые совместимы между собой и с Pascal.
 # Creating the archive on the source computer
 
 Use the prepared archive script instead of adding files to WinRAR manually. It creates a safe snapshot of `data/office.db`, so the program may stay open.

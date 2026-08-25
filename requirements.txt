@@ -1,7 +1,7 @@
 # AI Core
 ultralytics==8.4.110      # Compatible with PyTorch 2.11 safe model loading
 insightface==0.7.3        # Face recognition
-onnxruntime-gpu==1.23.2   # CUDA 12.x runtime available for Python 3.10
+onnxruntime==1.23.2       # CPU runtime; install a GPU profile when NVIDIA is available
 opencv-python-headless    # Для обработки видео
 numpy
 pillow

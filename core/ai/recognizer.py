@@ -1,9 +1,14 @@
 import ctypes
 import os
+from pathlib import Path
 
 import insightface
 import numpy as np
 import onnxruntime as ort
+
+
+_DLL_DIRECTORY_HANDLES = []
+
 
 class FaceRecognizer:
     def __init__(self, det_size=(320, 320)):
@@ -24,20 +29,35 @@ class FaceRecognizer:
 
         try:
             ort.preload_dlls()
-        except (AttributeError, OSError):
+        except AttributeError:
+            try:
+                import torch
+
+                torch_lib_dir = Path(torch.__file__).parent / "lib"
+                if os.name == "nt" and torch_lib_dir.is_dir():
+                    _DLL_DIRECTORY_HANDLES.append(os.add_dll_directory(str(torch_lib_dir)))
+            except (ImportError, OSError):
+                return False
+        except OSError:
             return False
 
         if os.name != "nt":
             return True
 
-        required_dlls = ("cudnn64_9.dll", "cublas64_12.dll", "cublasLt64_12.dll")
-        try:
-            for dll_name in required_dlls:
-                ctypes.WinDLL(dll_name)
-        except OSError:
-            print("[FaceID] CUDA/cuDNN runtime is missing. Using CPU recognition.")
-            return False
-        return True
+        runtime_sets = (
+            ("cudnn64_9.dll", "cublas64_12.dll", "cublasLt64_12.dll"),
+            ("cudnn64_8.dll", "cublas64_11.dll", "cublasLt64_11.dll"),
+        )
+        for required_dlls in runtime_sets:
+            try:
+                for dll_name in required_dlls:
+                    ctypes.WinDLL(dll_name)
+                return True
+            except OSError:
+                continue
+
+        print("[FaceID] CUDA/cuDNN runtime is missing. Using CPU recognition.")
+        return False
 
     @staticmethod
     def _create_app(det_size, use_cuda):
