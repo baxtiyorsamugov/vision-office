@@ -41,4 +41,8 @@ API documentation: http://127.0.0.1:8000/docs
 .\create_transfer_archive.ps1
 ```
 
+## Updating installed computers
+
+For normal code and UI updates, create the safe code-only archive with `./create_update_archive.ps1`. It does not include or overwrite each computer's database, camera settings, face photos, models, or installed environment. See [UPDATE_OTHER_PC.md](UPDATE_OTHER_PC.md).
+
 This creates a portable `acs2-transfer.zip` with a consistent SQLite snapshot.
