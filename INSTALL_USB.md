@@ -31,7 +31,7 @@ cd C:\projects\acs2
 
 Replace `pascal` with `cpu` or `modern` when appropriate. Copy `acs2-transfer.zip` to the flash drive.
 
-The archive contains the Python 3.10 x64 installer, project code, RTSP settings, attendance database, employee photos, `yolov8n-face.pt`, local InsightFace models, and the selected offline wheel set. Do not share it outside the trusted installation team.
+The archive contains the Python 3.10 x64 installer, project code, RTSP settings, attendance database, employee photos, `yolov8n-face.pt`, local InsightFace models, the selected GPU wheel set, and the CPU fallback wheel set. Do not share it outside the trusted installation team.
 
 ## 3. Install on the target computer
 
@@ -51,7 +51,7 @@ For an offline kit, run:
 .\install_vision_office.ps1 -Offline
 ```
 
-Use `-Offline` only when `offline-wheels` was prepared for the same target profile.
+Use `-Offline` only when `offline-wheels` was prepared for the same target GPU profile. Every GPU kit also includes the CPU fallback profile.
 
 ## 4. Runtime selection
 

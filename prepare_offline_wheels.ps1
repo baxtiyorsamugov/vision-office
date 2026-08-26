@@ -16,17 +16,22 @@ if (-not (Test-Path -LiteralPath $python)) {
 function Download-Package {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Arguments)
 
-    & $python -m pip download --isolated --index-url https://pypi.org/simple --only-binary=:all: --find-links $wheelDirectory --dest $wheelDirectory @Arguments
+    & $python -m pip download --isolated --proxy "" --index-url https://pypi.org/simple --only-binary=:all: --find-links $wheelDirectory --dest $wheelDirectory @Arguments
     if ($LASTEXITCODE -ne 0) {
         throw "Package download failed: $($Arguments -join ' ')"
     }
 }
 
 function Build-InsightFaceWheel {
-    & $python -m pip wheel --isolated --index-url https://pypi.org/simple --no-deps --wheel-dir $wheelDirectory insightface==0.7.3
+    & $python -m pip wheel --isolated --proxy "" --index-url https://pypi.org/simple --no-deps --wheel-dir $wheelDirectory insightface==0.7.3
     if ($LASTEXITCODE -ne 0) {
         throw "InsightFace wheel build failed."
     }
+}
+
+function Download-CpuRuntime {
+    Download-Package --index-url https://download.pytorch.org/whl/cpu torch==2.11.0+cpu torchvision==0.26.0+cpu
+    Download-Package onnxruntime==1.23.2
 }
 
 New-Item -ItemType Directory -Force -Path $wheelDirectory | Out-Null
@@ -41,9 +46,13 @@ switch ($Profile) {
         Download-Package onnxruntime-gpu==1.17.1
     }
     default {
-        Download-Package --index-url https://download.pytorch.org/whl/cpu torch==2.11.0+cpu torchvision==0.26.0+cpu
-        Download-Package onnxruntime==1.23.2
+        Download-CpuRuntime
     }
+}
+
+if ($Profile -ne "cpu") {
+    # A GPU driver can be absent or unusable on the target computer.
+    Download-CpuRuntime
 }
 
 Build-InsightFaceWheel
