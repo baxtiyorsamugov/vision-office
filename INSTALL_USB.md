@@ -32,7 +32,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\install_vision_office.ps1
 ```
 
-The script creates `.venv`, installs fixed package versions, detects the NVIDIA card, and verifies the installation before it completes.
+The script creates `.venv`, installs fixed package versions and the bundled InsightFace binary wheel, detects the NVIDIA card, and verifies the installation before it completes. Microsoft C++ Build Tools are not required.
 
 ## 4. Automatic runtime selection
 
