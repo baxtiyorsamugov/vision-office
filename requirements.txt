@@ -3,7 +3,7 @@
 ultralytics==8.4.110
 ./vendor/insightface-0.7.3-cp310-cp310-win_amd64.whl
 opencv-python-headless==5.0.0.93
-numpy==2.2.6
+# NumPy version is selected by the runtime profile for ONNX Runtime compatibility.
 pillow==12.3.0
 
 sqlalchemy==2.0.52

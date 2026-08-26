@@ -88,19 +88,20 @@ function Install-RuntimeProfile {
     param([string]$SelectedProfile)
 
     Invoke-Python -m pip uninstall -y torch torchvision onnxruntime onnxruntime-gpu
+    $profileFile = Get-ProfileRequirementsFile $SelectedProfile
 
     switch ($SelectedProfile) {
         "modern" {
-            Install-Pip --index-url https://download.pytorch.org/whl/cu128 torch==2.11.0+cu128 torchvision==0.26.0+cu128
-            Install-Pip onnxruntime-gpu==1.23.2
+            Install-Pip -c $profileFile --index-url https://download.pytorch.org/whl/cu128 torch==2.11.0+cu128 torchvision==0.26.0+cu128
+            Install-Pip -c $profileFile onnxruntime-gpu==1.23.2
         }
         "pascal" {
-            Install-Pip --index-url https://download.pytorch.org/whl/cu118 torch==2.3.1+cu118 torchvision==0.18.1+cu118
-            Install-Pip onnxruntime-gpu==1.17.1
+            Install-Pip -c $profileFile --index-url https://download.pytorch.org/whl/cu118 torch==2.3.1+cu118 torchvision==0.18.1+cu118
+            Install-Pip -c $profileFile onnxruntime-gpu==1.17.1
         }
         default {
-            Install-Pip --index-url https://download.pytorch.org/whl/cpu torch==2.11.0+cpu torchvision==0.26.0+cpu
-            Install-Pip onnxruntime==1.23.2
+            Install-Pip -c $profileFile --index-url https://download.pytorch.org/whl/cpu torch==2.11.0+cpu torchvision==0.26.0+cpu
+            Install-Pip -c $profileFile onnxruntime==1.23.2
         }
     }
 }
