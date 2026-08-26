@@ -52,14 +52,13 @@ If the automatic check needs to be overridden:
 
 ```powershell
 cd C:\VisionOffice
-.\.venv\Scripts\Activate.ps1
-python main.py
+.\run_vision_office.ps1
 ```
 
 For the administration panel:
 
 ```powershell
-streamlit run ui\app.py --server.port 8501
+.\.venv\Scripts\python.exe -m streamlit run ui\app.py --server.port 8501
 ```
 
 Open http://127.0.0.1:8501.
