@@ -2,6 +2,17 @@
 
 Vision Office is a local face-recognition and attendance platform for RTSP cameras, video tests, employee registration, analytics, and read-only integration API.
 
+## Install on another Windows computer
+
+For a normal installation, run the automatic installer from the project folder:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\install_vision_office.ps1
+```
+
+It uses a fixed dependency set and selects a modern NVIDIA GPU, GTX 10/Pascal GPU, or CPU profile automatically. Detailed flash-drive and offline instructions are in `INSTALL_USB.md`.
+
 ## Local launch
 
 ```powershell

@@ -8,6 +8,8 @@ import onnxruntime as ort
 
 
 _DLL_DIRECTORY_HANDLES = []
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+INSIGHTFACE_MODEL_ROOT = PROJECT_ROOT / "models" / "insightface"
 
 
 class FaceRecognizer:
@@ -64,6 +66,7 @@ class FaceRecognizer:
         providers = ["CUDAExecutionProvider", "CPUExecutionProvider"] if use_cuda else ["CPUExecutionProvider"]
         app = insightface.app.FaceAnalysis(
             name="buffalo_l",
+            root=str(INSIGHTFACE_MODEL_ROOT),
             allowed_modules=["detection", "recognition"],
             providers=providers,
         )

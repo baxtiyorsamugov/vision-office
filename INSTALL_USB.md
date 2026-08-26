@@ -1,95 +1,87 @@
-# Установка через флешку
+# Vision Office: installation on another computer
 
-## 1. Подготовить флешку на этом ПК
+The project includes a single installer, fixed dependency versions, local face models, and automatic runtime selection. It runs on NVIDIA GPU when the card is compatible and switches to CPU when it is not.
 
-Скопируйте на флешку папку проекта `acs2`, включая `data`, `config`, `yolov8n-face.pt` и `requirements*.txt`.
-Не копируйте `.venv`.
+## 1. Requirements on the target computer
 
-В папке проекта выполните:
-
-```powershell
-.\.venv\Scripts\Activate.ps1
-New-Item -ItemType Directory -Force offline-wheels
-python -m pip download --only-binary=:all: --dest offline-wheels torch==2.11.0+cu128 torchvision==0.26.0+cu128 --index-url https://download.pytorch.org/whl/cu128
-python -m pip download --only-binary=:all: --dest offline-wheels -r requirements.txt
-```
-
-Для ПК с GTX 1050 Ti дополнительно скачайте совместимый Pascal-профиль:
-
-```powershell
-python -m pip download --only-binary=:all: --dest offline-wheels -r requirements-gpu-pascal.txt
-```
-
-Скопируйте `offline-wheels` на флешку внутрь папки `acs2`.
-
-## 2. Подготовить новый ПК
-
-- Windows 10/11 64-bit
-- Python 3.10 64-bit с включённым `Add Python to PATH`
-- актуальный драйвер NVIDIA для видеокарты
+- Windows 10/11, 64-bit
+- Python 3.10, 64-bit, with `Add Python to PATH` enabled
 - Microsoft Visual C++ 2015-2022 Redistributable
+- Current NVIDIA driver only when GPU acceleration is needed
 
-Скопируйте папку `acs2` с флешки, например в `C:\VisionOffice`.
+The CUDA Toolkit is not required. PyTorch supplies the needed CUDA runtime files.
 
-## 3. Установить зависимости без интернета
+## 2. Prepare the transfer kit on the source computer
 
-Откройте PowerShell:
+Choose one profile for the target computer:
 
-```powershell
-cd C:\VisionOffice
-Set-ExecutionPolicy -Scope Process Bypass
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --no-index --find-links .\offline-wheels torch==2.11.0+cu128 torchvision==0.26.0+cu128
-python -m pip install --no-index --find-links .\offline-wheels -r requirements.txt
-python -m pip uninstall -y onnxruntime onnxruntime-gpu
-python -m pip install --no-index --find-links .\offline-wheels --no-deps onnxruntime-gpu==1.23.2
-```
+| Target hardware | Profile |
+| --- | --- |
+| No NVIDIA GPU | `cpu` |
+| GTX 10 series, including GTX 1050 Ti | `pascal` |
+| GTX 16 series, RTX 20/30/40/50 series | `modern` |
 
-## 4. Проверить и запустить
-
-```powershell
-python test_gpu.py
-python -c "import onnxruntime as ort; print(ort.get_available_providers())"
-python main.py
-```
-
-Должны появиться `True` для CUDA и `CUDAExecutionProvider` в списке ONNX Runtime.
-Для панели управления: `streamlit run ui\app.py` и открыть `http://localhost:8501`.
-
-## Если в консоли красные сообщения CUDA/cuDNN
-
-Сообщения о `cudnn64_9.dll` или `cublasLt64_12.dll` означают, что ONNX Runtime не получил CUDA-библиотеки. Камера может работать, но распознавание перейдёт на CPU и будет медленнее.
-
-На ПК с NVIDIA видеокартой закройте программу, активируйте `.venv` и переустановите GPU-пакеты:
-
-```powershell
-cd C:\VisionOffice
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade --force-reinstall -r requirements-gpu.txt
-python test_gpu.py
-```
-
-Также обновите драйвер NVIDIA. Устанавливать отдельный CUDA Toolkit не нужно: необходимые библиотеки поставляются вместе с PyTorch. Если видеокарты NVIDIA нет, ничего устанавливать не надо: Vision Office автоматически использует CPU без красных сообщений.
-
-## NVIDIA GTX 1050 Ti / Pascal
-
-GTX 1050 Ti использует архитектуру Pascal (`compute capability 6.1`) и не совместима с современным профилем CUDA 12.8. Используйте отдельный профиль из проекта:
-
-```powershell
-cd C:\VisionOffice
-Set-ExecutionPolicy -Scope Process Bypass
-.\install_pascal_gpu.ps1
-```
-
-Скрипт устанавливает PyTorch 2.3.1 с CUDA 11.8 и ONNX Runtime 1.17.3, которые совместимы между собой и с Pascal. Если в `offline-wheels` нет именно Pascal-пакетов, скрипт автоматически загрузит их из интернета.
-# Creating the archive on the source computer
-
-Use the prepared archive script instead of adding files to WinRAR manually. It creates a safe snapshot of `data/office.db`, so the program may stay open.
+To make an offline kit, download the selected wheels before creating the archive:
 
 ```powershell
 cd C:\projects\acs2
+.\prepare_offline_wheels.ps1 -Profile pascal
 .\create_transfer_archive.ps1
 ```
 
-Copy the resulting `C:\projects\acs2\acs2-transfer.zip` to the flash drive.
+Replace `pascal` with `cpu` or `modern` when appropriate. Copy `acs2-transfer.zip` to the flash drive.
+
+The archive contains project code, RTSP settings, attendance database, employee photos, `yolov8n-face.pt`, and local InsightFace models. Do not share it outside the trusted installation team.
+
+## 3. Install on the target computer
+
+Extract `acs2-transfer.zip`, for example to `C:\VisionOffice`. Open PowerShell in that folder:
+
+```powershell
+cd C:\VisionOffice
+Set-ExecutionPolicy -Scope Process Bypass
+.\install_vision_office.ps1
+```
+
+The installer creates `.venv`, installs fixed libraries, detects the NVIDIA compute capability, verifies the selected runtime, and then installs the application.
+
+For an offline kit, run:
+
+```powershell
+.\install_vision_office.ps1 -Offline
+```
+
+Use `-Offline` only when `offline-wheels` was prepared for the same target profile.
+
+## 4. Runtime selection
+
+- NVIDIA `compute capability 7.5` and higher: modern CUDA 12.8 profile.
+- NVIDIA `compute capability 6.x`: Pascal CUDA 11.8 profile.
+- No compatible NVIDIA GPU, missing driver, or failed GPU verification: CPU profile.
+
+The installer verifies GPU support after installation. With `-Profile auto` (the default), any GPU setup failure automatically falls back to CPU without leaving a partially configured environment.
+
+## 5. Launch
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+python main.py
+```
+
+For the administration panel:
+
+```powershell
+streamlit run ui\app.py --server.port 8501
+```
+
+Open http://127.0.0.1:8501.
+
+## Manual profile override
+
+Use this only when you know the hardware profile:
+
+```powershell
+.\install_vision_office.ps1 -Profile cpu
+.\install_vision_office.ps1 -Profile pascal
+.\install_vision_office.ps1 -Profile modern
+```

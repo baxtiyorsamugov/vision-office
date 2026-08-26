@@ -1,23 +1,20 @@
-# AI Core
-ultralytics==8.4.110      # Compatible with PyTorch 2.11 safe model loading
-insightface==0.7.3        # Face recognition
-onnxruntime==1.23.2       # CPU runtime; install a GPU profile when NVIDIA is available
-opencv-python-headless    # Для обработки видео
-numpy
-pillow
+# Vision Office base dependencies for Python 3.10 on Windows.
+# Runtime selection (CPU / modern NVIDIA / Pascal) is handled by install_vision_office.ps1.
+ultralytics==8.4.110
+insightface==0.7.3
+opencv-python-headless==5.0.0.93
+numpy==2.2.6
+pillow==12.3.0
 
-# Backend & Database
-sqlalchemy                # ORM для MySQL/SQLite
-pymysql
-fastapi>=0.115,<1         # Integration API
-uvicorn[standard]         # API server
+sqlalchemy==2.0.52
+pymysql==1.2.0
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
 
-# Dashboard
-streamlit
-plotly
-pandas
+streamlit==1.62.0
+plotly==6.9.0
+pandas==2.3.3
 
-# Tools
-python-telegram-bot
-pyyaml
-reportlab                 # Для генерации PDF-отчетов
+python-telegram-bot==22.8
+pyyaml==6.0.3
+reportlab==5.0.1
