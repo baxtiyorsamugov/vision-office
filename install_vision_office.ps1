@@ -5,6 +5,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$env:PIP_NO_INDEX = $null
 $projectRoot = $PSScriptRoot
 $venvPython = Join-Path $projectRoot ".venv\Scripts\python.exe"
 $offlineWheels = Join-Path $projectRoot "offline-wheels"
@@ -21,7 +22,7 @@ function Invoke-Python {
 function Install-Pip {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Arguments)
 
-    Invoke-Python -m pip install --upgrade --force-reinstall @Arguments
+    Invoke-Python -m pip install --isolated --upgrade --force-reinstall @Arguments
 }
 
 function Get-NvidiaComputeCapability {
@@ -61,12 +62,26 @@ function Select-RuntimeProfile {
     return "cpu"
 }
 
+function Get-ProfileRequirementsFile {
+    param([string]$SelectedProfile)
+
+    $profileFiles = @{
+        "cpu" = "requirements-cpu.txt"
+        "modern" = "requirements-gpu.txt"
+        "pascal" = "requirements-gpu-pascal.txt"
+    }
+    return Join-Path $projectRoot $profileFiles[$SelectedProfile]
+}
+
 function Install-BaseDependencies {
+    param([string]$SelectedProfile)
+
+    $profileFile = Get-ProfileRequirementsFile $SelectedProfile
     if ($Offline) {
-        Install-Pip --no-index --find-links $offlineWheels -r (Join-Path $projectRoot "requirements.txt")
+        Install-Pip --no-index --find-links $offlineWheels -c $profileFile -r (Join-Path $projectRoot "requirements.txt")
     }
     else {
-        Install-Pip -r (Join-Path $projectRoot "requirements.txt")
+        Install-Pip -c $profileFile -r (Join-Path $projectRoot "requirements.txt")
     }
 }
 
@@ -76,12 +91,7 @@ function Install-RuntimeProfile {
     Invoke-Python -m pip uninstall -y torch torchvision onnxruntime onnxruntime-gpu
 
     if ($Offline) {
-        $profileFiles = @{
-            "cpu" = "requirements-cpu.txt"
-            "modern" = "requirements-gpu.txt"
-            "pascal" = "requirements-gpu-pascal.txt"
-        }
-        $profileFile = Join-Path $projectRoot $profileFiles[$SelectedProfile]
+        $profileFile = Get-ProfileRequirementsFile $SelectedProfile
         Install-Pip --no-index --find-links $offlineWheels -r $profileFile
         return
     }
@@ -93,7 +103,7 @@ function Install-RuntimeProfile {
         }
         "pascal" {
             Install-Pip --index-url https://download.pytorch.org/whl/cu118 torch==2.3.1+cu118 torchvision==0.18.1+cu118
-            Install-Pip onnxruntime-gpu==1.17.3
+            Install-Pip onnxruntime-gpu==1.17.1
         }
         default {
             Install-Pip --index-url https://download.pytorch.org/whl/cpu torch==2.11.0+cpu torchvision==0.26.0+cpu
@@ -124,7 +134,7 @@ if ($pythonVersion -ne "3.10") {
     throw "Vision Office requires Python 3.10 x64. Current environment: $pythonVersion"
 }
 
-Invoke-Python -m pip install --upgrade pip
+Invoke-Python -m pip install --isolated --upgrade pip
 $selectedProfile = Select-RuntimeProfile
 Write-Host "Selected runtime profile: $selectedProfile" -ForegroundColor Cyan
 
@@ -144,6 +154,6 @@ catch {
     $selectedProfile = "cpu"
 }
 
-Install-BaseDependencies
+Install-BaseDependencies $selectedProfile
 Invoke-Python verify_install.py --profile $selectedProfile
 Write-Host "Vision Office is ready. Selected profile: $selectedProfile" -ForegroundColor Green

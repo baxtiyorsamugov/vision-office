@@ -2,4 +2,4 @@
 # install_pascal_gpu.ps1 selects the official CUDA 11.8 wheel index.
 torch==2.3.1+cu118
 torchvision==0.18.1+cu118
-onnxruntime-gpu==1.17.3
+onnxruntime-gpu==1.17.1
