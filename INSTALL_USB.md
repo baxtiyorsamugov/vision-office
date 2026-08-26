@@ -1,41 +1,30 @@
-# Vision Office: installation on another computer
+# Vision Office: classic PowerShell installation
 
-The project includes a single installer, fixed dependency versions, local face models, and automatic runtime selection. It runs on NVIDIA GPU when the card is compatible and switches to CPU when it is not.
+This method is intended for a normal internet-connected Windows computer. The project is copied by flash drive; PowerShell then creates the environment and installs exact library versions directly from official indexes.
 
-## 1. Requirements on the target computer
+## 1. Prepare the target computer
 
 - Windows 10/11, 64-bit
-- Python 3.10, 64-bit, with `Add Python to PATH` enabled. The matching installer is included in `installers\python-3.10.11-amd64.exe`.
-- Microsoft Visual C++ 2015-2022 Redistributable. The matching x64 installer is included in `installers\vc_redist.x64.exe`.
-- Current NVIDIA driver only when GPU acceleration is needed
+- Install Python 3.10 x64 from python.org and select `Add Python to PATH`
+- Install Microsoft Visual C++ 2015-2022 Redistributable x64
+- Install or update the NVIDIA driver only when GPU acceleration is required
 
-The CUDA Toolkit is not required. PyTorch supplies the needed CUDA runtime files.
+The CUDA Toolkit is not required.
 
-## 2. Prepare the transfer kit on the source computer
+## 2. Copy the project
 
-Choose one profile for the target computer:
-
-| Target hardware | Profile |
-| --- | --- |
-| No NVIDIA GPU | `cpu` |
-| GTX 10 series, including GTX 1050 Ti | `pascal` |
-| GTX 16 series, RTX 20/30/40/50 series | `modern` |
-
-To make an offline kit, download the selected wheels before creating the archive:
+On the source computer, create the transfer archive:
 
 ```powershell
 cd C:\projects\acs2
-.\prepare_offline_wheels.ps1 -Profile pascal
 .\create_transfer_archive.ps1
 ```
 
-Replace `pascal` with `cpu` or `modern` when appropriate. Copy `acs2-transfer.zip` to the flash drive.
+Copy `acs2-transfer.zip` to the flash drive. On the target computer, extract it to `C:\VisionOffice`.
 
-The archive contains the Python 3.10 x64 installer, Microsoft Visual C++ Runtime installer, project code, RTSP settings, attendance database, employee photos, `yolov8n-face.pt`, local InsightFace models, the selected GPU wheel set, and the CPU fallback wheel set. Do not share it outside the trusted installation team.
+## 3. Install through PowerShell
 
-## 3. Install on the target computer
-
-Extract `acs2-transfer.zip`, for example to `C:\VisionOffice`. On a clean computer, first run `installers\vc_redist.x64.exe`. If `py -3.10` is unavailable, run `installers\python-3.10.11-amd64.exe`, select **Add Python to PATH**, and reopen PowerShell. Then run:
+Open PowerShell in the extracted folder and run:
 
 ```powershell
 cd C:\VisionOffice
@@ -43,27 +32,26 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\install_vision_office.ps1
 ```
 
-The installer creates `.venv`, installs fixed libraries, detects the NVIDIA compute capability, verifies the selected runtime, and then installs the application.
+The script creates `.venv`, installs fixed package versions, detects the NVIDIA card, and verifies the installation before it completes.
 
-For an offline kit, run:
+## 4. Automatic runtime selection
+
+- GTX 10 series, including GTX 1050 Ti: Pascal CUDA 11.8 profile.
+- GTX 16 series and RTX cards: modern CUDA 12.8 profile.
+- No compatible GPU, missing driver, or failed GPU verification: CPU profile automatically.
+
+If the automatic check needs to be overridden:
 
 ```powershell
-.\install_vision_office.ps1 -Offline
+.\install_vision_office.ps1 -Profile cpu
+.\install_vision_office.ps1 -Profile pascal
+.\install_vision_office.ps1 -Profile modern
 ```
-
-Use `-Offline` only when `offline-wheels` was prepared for the same target GPU profile. Every GPU kit also includes the CPU fallback profile.
-
-## 4. Runtime selection
-
-- NVIDIA `compute capability 7.5` and higher: modern CUDA 12.8 profile.
-- NVIDIA `compute capability 6.x`: Pascal CUDA 11.8 profile.
-- No compatible NVIDIA GPU, missing driver, or failed GPU verification: CPU profile.
-
-The installer verifies GPU support after installation. With `-Profile auto` (the default), any GPU setup failure automatically falls back to CPU without leaving a partially configured environment.
 
 ## 5. Launch
 
 ```powershell
+cd C:\VisionOffice
 .\.venv\Scripts\Activate.ps1
 python main.py
 ```
@@ -75,13 +63,3 @@ streamlit run ui\app.py --server.port 8501
 ```
 
 Open http://127.0.0.1:8501.
-
-## Manual profile override
-
-Use this only when you know the hardware profile:
-
-```powershell
-.\install_vision_office.ps1 -Profile cpu
-.\install_vision_office.ps1 -Profile pascal
-.\install_vision_office.ps1 -Profile modern
-```

@@ -15,9 +15,7 @@ SKIPPED_DIRECTORIES = {
     "__pycache__",
     ".pytest_cache",
     "data",
-    "installers",
     "models",
-    "offline-wheels",
 }
 SKIPPED_FILES = {
     ".env",
@@ -50,4 +48,4 @@ if __name__ == "__main__":
     archive_path = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_ARCHIVE
     result = create_update_archive(archive_path)
     print(f"Update archive created: {result}")
-    print("Database, faces, RTSP settings, models, installers, and offline wheels were excluded.")
+    print("Database, faces, RTSP settings, and models were excluded.")

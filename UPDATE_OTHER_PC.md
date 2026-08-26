@@ -34,4 +34,4 @@ cd C:\VisionOffice
 .\install_vision_office.ps1
 ```
 
-For an offline dependency update, first prepare a new matching transfer kit on the source computer and then run `install_vision_office.ps1 -Offline` on the target computer.
+The target computer needs an internet connection only when libraries are changed. The installer downloads the fixed versions directly from the official package indexes and automatically selects GPU or CPU.

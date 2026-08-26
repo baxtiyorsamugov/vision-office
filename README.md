@@ -11,7 +11,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\install_vision_office.ps1
 ```
 
-It uses a fixed dependency set and selects a modern NVIDIA GPU, GTX 10/Pascal GPU, or CPU profile automatically. Detailed flash-drive and offline instructions are in `INSTALL_USB.md`.
+It uses a fixed dependency set and selects a modern NVIDIA GPU, GTX 10/Pascal GPU, or CPU profile automatically. Detailed flash-drive instructions are in `INSTALL_USB.md`.
 
 ## Local launch
 

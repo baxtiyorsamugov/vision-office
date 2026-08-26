@@ -1,5 +1,5 @@
 # NVIDIA Pascal profile for GTX 10-series cards (compute capability 6.1).
-# install_pascal_gpu.ps1 selects the official CUDA 11.8 wheel index.
+# install_vision_office.ps1 selects the official CUDA 11.8 wheel index.
 torch==2.3.1+cu118
 torchvision==0.18.1+cu118
 onnxruntime-gpu==1.17.1

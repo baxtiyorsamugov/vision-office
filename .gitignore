@@ -6,8 +6,6 @@ __pycache__/
 
 # Generated archives
 *.zip
-offline-wheels/
-installers/*.exe
 
 # База данных
 data/*.db

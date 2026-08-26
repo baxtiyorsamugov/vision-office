@@ -1,14 +1,12 @@
 param(
     [ValidateSet("auto", "cpu", "modern", "pascal")]
-    [string]$Profile = "auto",
-    [switch]$Offline
+    [string]$Profile = "auto"
 )
 
 $ErrorActionPreference = "Stop"
 $env:PIP_NO_INDEX = $null
 $projectRoot = $PSScriptRoot
 $venvPython = Join-Path $projectRoot ".venv\Scripts\python.exe"
-$offlineWheels = Join-Path $projectRoot "offline-wheels"
 
 function Invoke-Python {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Arguments)
@@ -22,7 +20,7 @@ function Invoke-Python {
 function Install-Pip {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Arguments)
 
-    Invoke-Python -m pip install --isolated --upgrade --force-reinstall @Arguments
+    Invoke-Python -m pip install --isolated --proxy "" --upgrade @Arguments
 }
 
 function Get-NvidiaComputeCapability {
@@ -77,24 +75,13 @@ function Install-BaseDependencies {
     param([string]$SelectedProfile)
 
     $profileFile = Get-ProfileRequirementsFile $SelectedProfile
-    if ($Offline) {
-        Install-Pip --no-index --find-links $offlineWheels -c $profileFile -r (Join-Path $projectRoot "requirements.txt")
-    }
-    else {
-        Install-Pip -c $profileFile -r (Join-Path $projectRoot "requirements.txt")
-    }
+    Install-Pip -c $profileFile -r (Join-Path $projectRoot "requirements.txt")
 }
 
 function Install-RuntimeProfile {
     param([string]$SelectedProfile)
 
     Invoke-Python -m pip uninstall -y torch torchvision onnxruntime onnxruntime-gpu
-
-    if ($Offline) {
-        $profileFile = Get-ProfileRequirementsFile $SelectedProfile
-        Install-Pip --no-index --find-links $offlineWheels -r $profileFile
-        return
-    }
 
     switch ($SelectedProfile) {
         "modern" {
@@ -110,10 +97,6 @@ function Install-RuntimeProfile {
             Install-Pip onnxruntime==1.23.2
         }
     }
-}
-
-if ($Offline -and -not (Test-Path -LiteralPath $offlineWheels)) {
-    throw "Offline mode needs the offline-wheels folder in the project directory."
 }
 
 if (-not (Test-Path -LiteralPath $venvPython)) {
@@ -134,7 +117,7 @@ if ($pythonVersion -ne "3.10") {
     throw "Vision Office requires Python 3.10 x64. Current environment: $pythonVersion"
 }
 
-Invoke-Python -m pip install --isolated --upgrade pip
+Invoke-Python -m pip install --isolated --proxy "" --upgrade pip
 $selectedProfile = Select-RuntimeProfile
 Write-Host "Selected runtime profile: $selectedProfile" -ForegroundColor Cyan
 

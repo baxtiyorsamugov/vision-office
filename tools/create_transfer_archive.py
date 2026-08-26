@@ -12,7 +12,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_ARCHIVE = PROJECT_ROOT / "acs2-transfer.zip"
 SKIPPED_DIRECTORIES = {".venv", ".git", "__pycache__", ".pytest_cache"}
-SKIPPED_FILES = {"acs2.zip", "acs2-transfer.zip"}
+SKIPPED_FILES = {"acs2.zip", "acs2-transfer.zip", "acs2-update.zip"}
 
 
 def should_skip(path: Path) -> bool:
@@ -20,7 +20,7 @@ def should_skip(path: Path) -> bool:
     return (
         any(part in SKIPPED_DIRECTORIES for part in relative_path.parts)
         or path.name in SKIPPED_FILES
-        or path.suffix == ".pyc"
+        or path.suffix in {".pyc", ".zip"}
     )
 
 
