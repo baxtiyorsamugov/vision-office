@@ -5,6 +5,12 @@ param(
 
 $ErrorActionPreference = "Stop"
 $env:PIP_NO_INDEX = $null
+$env:HTTP_PROXY = $null
+$env:HTTPS_PROXY = $null
+$env:ALL_PROXY = $null
+$env:http_proxy = $null
+$env:https_proxy = $null
+$env:all_proxy = $null
 $projectRoot = $PSScriptRoot
 $venvPython = Join-Path $projectRoot ".venv\Scripts\python.exe"
 
@@ -20,7 +26,7 @@ function Invoke-Python {
 function Install-Pip {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Arguments)
 
-    Invoke-Python -m pip install --isolated --proxy "" --upgrade @Arguments
+    Invoke-Python -m pip install --isolated --upgrade @Arguments
 }
 
 function Get-NvidiaComputeCapability {
@@ -117,7 +123,7 @@ if ($pythonVersion -ne "3.10") {
     throw "Vision Office requires Python 3.10 x64. Current environment: $pythonVersion"
 }
 
-Invoke-Python -m pip install --isolated --proxy "" --upgrade pip
+Invoke-Python -m pip install --isolated --upgrade pip
 $selectedProfile = Select-RuntimeProfile
 Write-Host "Selected runtime profile: $selectedProfile" -ForegroundColor Cyan
 
