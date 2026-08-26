@@ -6,7 +6,7 @@ The project includes a single installer, fixed dependency versions, local face m
 
 - Windows 10/11, 64-bit
 - Python 3.10, 64-bit, with `Add Python to PATH` enabled. The matching installer is included in `installers\python-3.10.11-amd64.exe`.
-- Microsoft Visual C++ 2015-2022 Redistributable
+- Microsoft Visual C++ 2015-2022 Redistributable. The matching x64 installer is included in `installers\vc_redist.x64.exe`.
 - Current NVIDIA driver only when GPU acceleration is needed
 
 The CUDA Toolkit is not required. PyTorch supplies the needed CUDA runtime files.
@@ -31,11 +31,11 @@ cd C:\projects\acs2
 
 Replace `pascal` with `cpu` or `modern` when appropriate. Copy `acs2-transfer.zip` to the flash drive.
 
-The archive contains the Python 3.10 x64 installer, project code, RTSP settings, attendance database, employee photos, `yolov8n-face.pt`, local InsightFace models, the selected GPU wheel set, and the CPU fallback wheel set. Do not share it outside the trusted installation team.
+The archive contains the Python 3.10 x64 installer, Microsoft Visual C++ Runtime installer, project code, RTSP settings, attendance database, employee photos, `yolov8n-face.pt`, local InsightFace models, the selected GPU wheel set, and the CPU fallback wheel set. Do not share it outside the trusted installation team.
 
 ## 3. Install on the target computer
 
-Extract `acs2-transfer.zip`, for example to `C:\VisionOffice`. If `py -3.10` is unavailable, run `installers\python-3.10.11-amd64.exe`, select **Add Python to PATH**, and reopen PowerShell. Then run:
+Extract `acs2-transfer.zip`, for example to `C:\VisionOffice`. On a clean computer, first run `installers\vc_redist.x64.exe`. If `py -3.10` is unavailable, run `installers\python-3.10.11-amd64.exe`, select **Add Python to PATH**, and reopen PowerShell. Then run:
 
 ```powershell
 cd C:\VisionOffice
