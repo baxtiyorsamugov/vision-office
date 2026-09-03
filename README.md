@@ -2,6 +2,15 @@
 
 Vision Office is a local face-recognition and attendance platform for RTSP cameras, video tests, employee registration, analytics, and read-only integration API.
 
+## Engineering roadmap
+
+- [Roadmap and live status](ROADMAP.md)
+- [Implementation playbook](docs/IMPLEMENTATION_PLAYBOOK.md)
+- [ERP adapter and mock contract](docs/ERP_CONTRACT.md)
+- [Operations runbook](docs/OPERATIONS_RUNBOOK.md)
+
+The roadmap is updated with each verified stage; do not treat a task as complete until its documented checks pass.
+
 ## Install on another Windows computer
 
 For a normal installation, run the automatic installer from the project folder:
