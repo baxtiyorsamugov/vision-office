@@ -11,14 +11,23 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_ARCHIVE = PROJECT_ROOT / "acs2-transfer.zip"
-SKIPPED_DIRECTORIES = {".venv", ".git", "__pycache__", ".pytest_cache"}
+SKIPPED_DIRECTORIES = {
+    ".venv", ".git", "__pycache__", ".pytest_cache",
+    "data/imports", "data/embeddings", "data/faces", "data/logs",
+}
 SKIPPED_FILES = {"acs2.zip", "acs2-transfer.zip", "acs2-update.zip"}
+SENSITIVE_FILES = {
+    Path("config/settings.yaml"),
+    Path("data/admin_access_token.txt"),
+    Path("data/runtime_status.json"),
+}
 
 
 def should_skip(path: Path) -> bool:
     relative_path = path.relative_to(PROJECT_ROOT)
     return (
         any(part in SKIPPED_DIRECTORIES for part in relative_path.parts)
+        or relative_path in SENSITIVE_FILES
         or path.name in SKIPPED_FILES
         or path.suffix in {".pyc", ".zip"}
     )
@@ -53,8 +62,20 @@ def create_archive(destination: Path) -> Path:
     return destination
 
 
+def verify_archive(archive_path: Path) -> None:
+    """Fail closed if local credentials or biometric source files reach the ZIP."""
+    forbidden_parts = {".venv", ".git", "data/imports", "data/embeddings", "data/faces", "data/logs"}
+    forbidden_files = {"config/settings.yaml", "data/admin_access_token.txt", "data/runtime_status.json"}
+    with zipfile.ZipFile(archive_path) as archive:
+        entries = {item.filename.replace("\\", "/") for item in archive.infolist()}
+    leaked = [entry for entry in entries if entry in forbidden_files or any(part in forbidden_parts for part in entry.split("/"))]
+    if leaked:
+        raise RuntimeError(f"Sensitive files found in transfer archive: {leaked}")
+
+
 if __name__ == "__main__":
     archive_path = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_ARCHIVE
     result = create_archive(archive_path)
+    verify_archive(result)
     print(f"Archive created: {result}")
     print("Database included as a consistent SQLite snapshot.")
