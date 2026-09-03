@@ -7,8 +7,8 @@ import numpy as np
 from sqlalchemy import create_engine
 
 from core.edge.config import EdgeSettings
-from core.edge.service import EdgeService
-from database.models import AccessLogOutbox
+from core.edge.service import EdgeRequestError, EdgeService
+from database.models import AccessLogOutbox, RecognitionEvent, RemotePerson
 
 
 class EdgeServiceTests(unittest.TestCase):
@@ -50,15 +50,132 @@ class EdgeServiceTests(unittest.TestCase):
         finally:
             session.close()
 
-    def test_unknown_event_contains_embedding_without_person_id(self):
+    def test_unknown_event_is_never_queued_for_erp(self):
         embedding = np.full(512, 0.1, dtype=np.float32)
-        self.assertTrue(self.service.queue_recognition(None, 0.2, embedding, subject_hint="unknown:42"))
+        self.assertFalse(self.service.queue_recognition(None, 0.2, embedding, subject_hint="unknown:42"))
+        session = self.service.Session()
+        try:
+            self.assertEqual(session.query(AccessLogOutbox).count(), 0)
+        finally:
+            session.close()
+
+    def test_known_event_payload_has_camera_and_idempotency_context(self):
+        event = RecognitionEvent(
+            id="e0d0d2f4-6a2e-4f3f-a42a-990063865000",
+            camera_id="entry-camera",
+            event_type="entry",
+            person_id="a0d0d2f4-6a2e-4f3f-a42a-990063865000",
+            person_type="employee",
+            person_name="Test",
+            subject_signature="a0d0d2f4-6a2e-4f3f-a42a-990063865000",
+            confidence=0.94,
+        )
+        self.assertTrue(self.service.queue_access_event(event))
         session = self.service.Session()
         try:
             body = json.loads(session.query(AccessLogOutbox).one().payload)
-            self.assertEqual(body["person_type"], "unknown")
-            self.assertEqual(len(body["embedding"]), 512)
-            self.assertNotIn("person_id", body)
+            self.assertEqual(body["camera_id"], "entry-camera")
+            self.assertEqual(body["event_type"], "entry")
+            self.assertEqual(body["event_id"], event.id)
+            self.assertEqual(body["edge_device_id"], "device-123")
+        finally:
+            session.close()
+
+    def test_entry_and_exit_are_not_deduplicated_together(self):
+        base = {
+            "person_id": "a0d0d2f4-6a2e-4f3f-a42a-990063865000",
+            "person_type": "employee",
+            "person_name": "Test",
+            "subject_signature": "ignored",
+            "confidence": 0.9,
+        }
+        entry = RecognitionEvent(id="10000000-0000-0000-0000-000000000001", camera_id="entry", event_type="entry", **base)
+        exit_event = RecognitionEvent(id="10000000-0000-0000-0000-000000000002", camera_id="exit", event_type="exit", **base)
+        self.assertTrue(self.service.queue_access_event(entry))
+        self.assertTrue(self.service.queue_access_event(exit_event))
+        session = self.service.Session()
+        try:
+            self.assertEqual(session.query(AccessLogOutbox).count(), 2)
+        finally:
+            session.close()
+
+    def test_sync_normalizes_remote_embedding(self):
+        self.service._request_json = lambda *args, **kwargs: [{
+            "id": "b0d0d2f4-6a2e-4f3f-a42a-990063865000",
+            "person_type": "employee",
+            "fio": "Remote Person",
+            "active": True,
+            "embedding": [0.1] * 512,
+        }]
+        self.assertTrue(self.service.sync_if_due())
+        session = self.service.Session()
+        try:
+            person = session.get(RemotePerson, "b0d0d2f4-6a2e-4f3f-a42a-990063865000")
+            self.assertEqual(person.embedding_status, "ready")
+            self.assertAlmostEqual(float(np.linalg.norm(np.asarray(person.embedding))), 1.0, places=5)
+        finally:
+            session.close()
+
+    def test_invalid_remote_person_without_photo_is_recorded_locally(self):
+        session = self.service.Session()
+        try:
+            self.service._upsert_person(session, {
+                "id": "c0d0d2f4-6a2e-4f3f-a42a-990063865000",
+                "person_type": "employee",
+                "fio": "Invalid Person",
+                "embedding": [0.2] * 10,
+            })
+            session.commit()
+            person = session.get(RemotePerson, "c0d0d2f4-6a2e-4f3f-a42a-990063865000")
+            self.assertEqual(person.embedding_status, "invalid")
+            self.assertIn("No valid embedding", person.embedding_error)
+        finally:
+            session.close()
+
+    def test_photo_fallback_builds_and_caches_embedding(self):
+        class FakeRecognizer:
+            @staticmethod
+            def get_embedding(_image):
+                return np.ones(512, dtype=np.float32)
+
+        self.service._recognizer = FakeRecognizer()
+        self.service._download_reference_photo = lambda person_id, url: (
+            np.zeros((112, 112, 3), dtype=np.uint8), f"data/persons/{person_id}.jpg"
+        )
+        session = self.service.Session()
+        try:
+            self.service._upsert_person(session, {
+                "id": "f0d0d2f4-6a2e-4f3f-a42a-990063865000",
+                "person_type": "employee",
+                "fio": "Photo Person",
+                "person_photo_url": "https://erp.example.test/photo.jpg",
+            })
+            session.commit()
+            person = session.get(RemotePerson, "f0d0d2f4-6a2e-4f3f-a42a-990063865000")
+            self.assertEqual(person.embedding_status, "ready")
+            self.assertEqual(person.photo_path, "data/persons/f0d0d2f4-6a2e-4f3f-a42a-990063865000.jpg")
+            self.assertAlmostEqual(float(np.linalg.norm(np.asarray(person.embedding))), 1.0, places=5)
+        finally:
+            session.close()
+
+    def test_network_failure_is_retried_then_sent(self):
+        identity = {"person_id": "d0d0d2f4-6a2e-4f3f-a42a-990063865000", "person_type": "employee", "name": "Test"}
+        self.assertTrue(self.service.queue_recognition(identity, 0.94, np.zeros(512, dtype=np.float32)))
+        self.service._request_json = lambda *args, **kwargs: (_ for _ in ()).throw(EdgeRequestError("offline"))
+        self.assertEqual(self.service.deliver_due_events(), 0)
+        session = self.service.Session()
+        try:
+            event = session.query(AccessLogOutbox).one()
+            self.assertEqual(event.status, "retry")
+            event.next_attempt_at = self.service._utcnow()
+            session.commit()
+        finally:
+            session.close()
+        self.service._request_json = lambda *args, **kwargs: None
+        self.assertEqual(self.service.deliver_due_events(), 1)
+        session = self.service.Session()
+        try:
+            self.assertEqual(session.query(AccessLogOutbox).one().status, "sent")
         finally:
             session.close()
 

@@ -18,6 +18,10 @@ data/embeddings/*
 data/imports/*
 data/admin_access_token.txt
 data/runtime_status.json
+data/runtime_status_*.json
+data/health_status.json
+data/events/
+data/persons/
 
 # Исключаем видеофайлы ВЕЗДЕ в проекте
 *.mp4

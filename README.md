@@ -11,6 +11,10 @@ Vision Office is a local face-recognition and attendance platform for RTSP camer
 
 The roadmap is updated with each verified stage; do not treat a task as complete until its documented checks pass.
 
+## Two-camera setup
+
+Add two active camera entries to the local `config/settings.yaml`, assigning `event_type: entry` to the entrance stream and `event_type: exit` to the exit stream. `main.py` starts an isolated worker for each camera; an RTSP failure reconnects independently. See [the operations runbook](docs/OPERATIONS_RUNBOOK.md) for the full configuration and acceptance procedure.
+
 ## Install on another Windows computer
 
 For a normal installation, run the automatic installer from the project folder:

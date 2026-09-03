@@ -6,17 +6,39 @@
 2. Copy the project to the Edge Device and create `config/settings.yaml` from `config/settings.example.yaml`.
 3. Run `Set-ExecutionPolicy -Scope Process Bypass` and `./install_vision_office.ps1 -Profile auto`.
 4. Verify the selected runtime with `./.venv/Scripts/python.exe verify_install.py --profile cpu` or the selected GPU profile.
-5. Start the current single-camera application with `./run_vision_office.ps1`.
+5. Start Vision Office with `./run_vision_office.ps1`. It automatically runs one active camera directly or two or more active cameras through the supervisor.
+
+For a no-window video smoke check after an update:
+
+```powershell
+.\.venv\Scripts\python.exe test_video.py --headless --duration-seconds 35
+```
 
 ## Camera configuration
 
-Current single-camera mode reads the first active `cameras` entry. The two-camera supervisor roadmap requires each camera to have a UUID, name, RTSP URL, `entry` or `exit` event type, active flag and location. Keep RTSP credentials only in ignored `settings.yaml`.
+Every active camera receives its own worker process. Keep RTSP credentials only in ignored `settings.yaml`.
+
+```yaml
+cameras:
+  - id: "entry_01"
+    name: "Main entrance"
+    rtsp_url: "rtsp://USER:PASSWORD@NVR/Streaming/Channels/101"
+    is_active: true
+    event_type: "entry"
+    location: "Main entrance"
+  - id: "exit_01"
+    name: "Main exit"
+    rtsp_url: "rtsp://USER:PASSWORD@NVR/Streaming/Channels/201"
+    is_active: true
+    event_type: "exit"
+    location: "Main exit"
+```
 
 For RTSP instability:
 
 - Prefer wired Ethernet and RTSP over TCP.
 - Check the NVR stream directly in a player before changing AI settings.
-- Inspect capture FPS and frame age in `data/runtime_status.json` and the dashboard.
+- Inspect per-camera capture FPS and frame age in `data/runtime_status_<camera_id>.json` and the dashboard.
 - A decoder warning means packet loss or corrupted H.264 frames; it is separate from face recognition accuracy.
 
 ## GPU and CPU verification
@@ -38,7 +60,7 @@ For NVIDIA GTX 10-series use the Pascal profile; modern RTX cards use the modern
 
 ## Health and Telegram diagnostics
 
-Health Checker and Telegram are planned features. When enabled, use the dashboard/API status to inspect DB, ERP, application and per-camera health. Verify that Telegram token and chat IDs are configured locally before testing alerts. Expect one alert after the configured failure threshold and one recovery message after restoration.
+Health Checker starts with Vision Office and writes `data/health_status.json`. It checks SQLite, free disk, internet, ERP sync state and every camera. It records incidents in SQLite and sends Telegram through `notification_outbox` when `health.telegram_enabled`, bot token and chat IDs are configured locally. Expect one alert after the configured failure threshold and one recovery message after restoration.
 
 ## Safe update and backup
 

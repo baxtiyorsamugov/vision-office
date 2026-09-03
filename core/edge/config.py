@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse
 
 import yaml
 
@@ -23,6 +24,21 @@ class EdgeSettings:
     @property
     def configured(self) -> bool:
         return bool(self.enabled and self.base_url and self.device_api_key and self.device_id)
+
+    def validation_error(self) -> str | None:
+        if not self.enabled:
+            return None
+        missing = [name for name, value in (
+            ("base_url", self.base_url),
+            ("device_api_key", self.device_api_key),
+            ("device_id", self.device_id),
+        ) if not value or str(value).startswith("REPLACE_")]
+        if missing:
+            return f"edge_integration requires: {', '.join(missing)}"
+        parsed = urlparse(self.base_url)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            return "edge_integration.base_url must be a valid HTTP or HTTPS URL"
+        return None
 
 
 def load_edge_settings(path: str | Path = "config/settings.yaml") -> EdgeSettings:

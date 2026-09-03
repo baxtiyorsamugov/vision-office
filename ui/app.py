@@ -21,7 +21,8 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
 from database.manager import get_engine
-from database.models import AccessLogOutbox, Attendance, Base, EdgeSyncState, Employee, RemotePerson
+from database.migrations import run_migrations
+from database.models import AccessLogOutbox, Attendance, Base, EdgeSyncState, Employee, HealthIncident, RecognitionEvent, RemotePerson
 from core.edge.config import load_edge_settings
 from core.performance import read_runtime_status
 
@@ -94,7 +95,7 @@ def apply_theme():
 
 apply_theme()
 engine = get_engine()
-Base.metadata.create_all(engine)
+run_migrations(engine)
 Session = sessionmaker(bind=engine)
 
 for state_key in ("live_process", "demo_process", "api_process"):
@@ -202,14 +203,18 @@ def render_control_center():
         employee_count = session.query(Employee).count()
         today = date.today().isoformat()
         today_count = session.query(Attendance.employee_id).filter(func.date(Attendance.timestamp) == today).distinct().count()
-        event_count = session.query(Attendance).filter(func.date(Attendance.timestamp) == today).count()
+        event_count = session.query(RecognitionEvent).filter(func.date(RecognitionEvent.created_at) == today).count()
+        active_incidents = session.query(HealthIncident).filter(HealthIncident.status == "open").count()
     finally:
         session.close()
     metrics = st.columns(4)
     metrics[0].metric("Сотрудники", employee_count)
     metrics[1].metric("Сегодня замечены", today_count)
     metrics[2].metric("События сегодня", event_count)
-    metrics[3].metric("Камеры", 1, "RTSP")
+    camera_count = len((read_runtime_status() or {}).get("cameras", [])) or 1
+    metrics[3].metric("Камеры", camera_count, "в работе" if live_running else "ожидание")
+    if active_incidents:
+        st.warning(f"Health Checker: активных инцидентов: {active_incidents}")
 
     render_performance_panel()
 
@@ -257,6 +262,22 @@ def render_performance_panel():
     if not status.get("running"):
         st.info("Камера остановлена. Последние показатели сброшены.")
         return
+    cameras = status.get("cameras")
+    if cameras:
+        st.dataframe(
+            pd.DataFrame([{
+                "Камера": item.get("camera_name") or item.get("camera_id"),
+                "Статус": item.get("stream_status", "—"),
+                "Захват FPS": item.get("capture_fps", 0),
+                "Детекция FPS": item.get("detection_fps", 0),
+                "Возраст кадра, ms": item.get("frame_age_ms", "—"),
+                "FaceID p95, ms": item.get("face_ms_p95", "—"),
+                "Reconnect": item.get("reconnect_attempts", 0),
+            } for item in cameras]),
+            use_container_width=True,
+            hide_index=True,
+        )
+        return
     metrics = st.columns(5)
     metrics[0].metric("YOLO", status.get("yolo_device", "—"))
     metrics[1].metric("Захват", f"{status.get('capture_fps', 0)} FPS")
@@ -284,10 +305,16 @@ def load_attendance(selected_date):
 def load_recent_events(limit):
     session = Session()
     try:
-        rows = session.query(Attendance.timestamp, Attendance.event_type, Employee.full_name, Employee.role).join(Employee, Attendance.employee_id == Employee.id).order_by(Attendance.timestamp.desc()).limit(limit).all()
+        rows = session.query(RecognitionEvent).order_by(RecognitionEvent.created_at.desc()).limit(limit).all()
     finally:
         session.close()
-    return pd.DataFrame([{"ФИО": display_name(row.full_name), "Роль": row.role or "Не указана", "Время": row.timestamp.strftime("%d.%m %H:%M"), "Событие": row.event_type or "check_in"} for row in rows])
+    return pd.DataFrame([{
+        "ФИО": display_name(row.person_name or "Неизвестный"),
+        "Роль": row.person_type,
+        "Время": row.created_at.strftime("%d.%m %H:%M"),
+        "Событие": row.event_type,
+        "Камера": row.camera_id,
+    } for row in rows])
 
 
 def render_analytics():
@@ -459,6 +486,9 @@ def render_developer_api():
                     {"Метод": "GET", "Маршрут": "/api/v1/employees", "Назначение": "Список сотрудников"},
                     {"Метод": "GET", "Маршрут": "/api/v1/attendance?date=YYYY-MM-DD", "Назначение": "События присутствия"},
                     {"Метод": "GET", "Маршрут": "/api/v1/attendance/summary?date=YYYY-MM-DD", "Назначение": "Сводка по дате"},
+                    {"Метод": "GET", "Маршрут": "/api/v1/recognition-events", "Назначение": "События камер с фото"},
+                    {"Метод": "GET", "Маршрут": "/api/v1/status", "Назначение": "Камеры и Health Checker"},
+                    {"Метод": "GET", "Маршрут": "/api/v1/incidents", "Назначение": "История инцидентов"},
                 ]
             ),
             use_container_width=True,

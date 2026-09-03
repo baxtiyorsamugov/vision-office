@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 import math
+import logging
 import uuid
 from datetime import datetime, timedelta, timezone
-from hashlib import sha256
+from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -16,11 +17,14 @@ from sqlalchemy.orm import sessionmaker
 
 from core.edge.config import EdgeSettings
 from database.manager import get_engine
-from database.models import AccessLogOutbox, EdgeSyncState, RemotePerson
+from database.models import AccessLogOutbox, EdgeSyncState, RemotePerson, RecognitionEvent
 
 
 PERSON_TYPES = {"employee", "teacher", "student"}
 RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+TERMINAL_STATUS_CODES = {400, 401, 403, 404, 409, 422}
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+logger = logging.getLogger("vision_office.edge")
 
 
 class EdgeService:
@@ -30,10 +34,10 @@ class EdgeService:
         self.settings = settings
         self.engine = engine or get_engine()
         self.Session = sessionmaker(bind=self.engine)
-        # Existing deployments have no migration runner; create only new tables.
-        RemotePerson.__table__.create(self.engine, checkfirst=True)
-        EdgeSyncState.__table__.create(self.engine, checkfirst=True)
-        AccessLogOutbox.__table__.create(self.engine, checkfirst=True)
+        from database.migrations import run_migrations
+
+        run_migrations(self.engine)
+        self._recognizer = None
 
     def _state(self, session) -> EdgeSyncState:
         state = session.get(EdgeSyncState, 1)
@@ -116,16 +120,24 @@ class EdgeService:
         if not person_id or person_type not in PERSON_TYPES:
             return
         embedding = payload.get("embedding")
-        if embedding is not None and not self._valid_embedding(embedding):
-            raise ValueError(f"Person {person_id} has an invalid embedding")
         person = session.get(RemotePerson, person_id)
         if person is None:
             person = RemotePerson(id=person_id)
             session.add(person)
         person.person_type = person_type
         person.fio = str(payload.get("fio") or payload.get("full_name") or "") or None
-        person.embedding = embedding
         person.active = bool(payload.get("active", True))
+        person.photo_url = str(payload.get("person_photo_url") or "") or None
+        if self._valid_embedding(embedding):
+            normalized = self._normalize_embedding(embedding)
+            person.embedding = normalized.tolist()
+            person.embedding_status = "ready"
+            person.embedding_error = None
+        else:
+            person.embedding = None
+            person.embedding_status = "pending"
+            person.embedding_error = "ERP embedding is missing or invalid; photo fallback is required"
+            self._create_embedding_from_photo(person)
         person.updated_at = self._utcnow()
 
     @staticmethod
@@ -135,6 +147,56 @@ class EdgeService:
             and len(embedding) == 512
             and all(isinstance(value, (int, float)) and math.isfinite(value) for value in embedding)
         )
+
+    @staticmethod
+    def _normalize_embedding(embedding: Any) -> np.ndarray:
+        vector = np.asarray(embedding, dtype=np.float32)
+        norm = float(np.linalg.norm(vector))
+        if norm <= 0 or not math.isfinite(norm):
+            raise ValueError("Embedding norm must be positive and finite")
+        return vector / norm
+
+    def _create_embedding_from_photo(self, person: RemotePerson) -> None:
+        if not person.photo_url:
+            person.embedding_status = "invalid"
+            person.embedding_error = "No valid embedding or person_photo_url supplied by ERP"
+            return
+        try:
+            photo, photo_path = self._download_reference_photo(person.id, person.photo_url)
+            person.photo_path = photo_path
+            if self._recognizer is None:
+                from core.ai.recognizer import FaceRecognizer
+                self._recognizer = FaceRecognizer()
+            embedding = self._recognizer.get_embedding(photo)
+            if embedding is None or not self._valid_embedding(np.asarray(embedding).tolist()):
+                raise ValueError("No usable face detected in reference photo")
+            normalized = self._normalize_embedding(embedding)
+            person.embedding = normalized.tolist()
+            person.embedding_status = "ready"
+            person.embedding_error = None
+        except Exception as error:
+            person.embedding_status = "invalid"
+            person.embedding_error = str(error)[:500]
+            logger.warning("Reference photo rejected person_id=%s error=%s", person.id, error)
+
+    def _download_reference_photo(self, person_id: str, photo_url: str) -> tuple[np.ndarray, str]:
+        request = Request(photo_url, headers={"Authorization": f"Bearer {self.settings.device_api_key}"})
+        try:
+            with urlopen(request, timeout=self.settings.request_timeout_seconds) as response:
+                raw = response.read()
+        except (HTTPError, URLError, OSError) as error:
+            raise ValueError(f"Reference photo download failed: {error}") from error
+        import cv2
+
+        image = cv2.imdecode(np.frombuffer(raw, dtype=np.uint8), cv2.IMREAD_COLOR)
+        if image is None or image.size == 0:
+            raise ValueError("Reference photo is not a decodable image")
+        target = PROJECT_ROOT / "data" / "persons"
+        target.mkdir(parents=True, exist_ok=True)
+        path = target / f"{person_id}.jpg"
+        if not cv2.imwrite(str(path), image):
+            raise ValueError("Could not persist reference photo")
+        return image, str(path.relative_to(PROJECT_ROOT)).replace("\\", "/")
 
     def cache_embeddings(self) -> tuple[list[dict[str, str]], np.ndarray | None]:
         session = self.Session()
@@ -161,14 +223,12 @@ class EdgeService:
         finally:
             session.close()
 
-    def queue_recognition(self, identity: dict[str, str] | None, confidence: float | None, embedding: np.ndarray, subject_hint: str | None = None) -> bool:
-        """Queue a known or unknown entry event, respecting a local cooldown."""
-        if not self.settings.configured:
-            return False
-        if identity is None and len(embedding) != 512:
+    def queue_access_event(self, event: RecognitionEvent) -> bool:
+        """Queue a recognized employee event. Unknown events deliberately remain local."""
+        if not self.settings.configured or not event.person_id or event.person_type != "employee":
             return False
         now = datetime.now(ZoneInfo(self.settings.timezone))
-        signature = identity["person_id"] if identity else (subject_hint or sha256(np.asarray(embedding, dtype=np.float32).tobytes()).hexdigest())
+        signature = f"{event.person_id}:{event.camera_id}:{event.event_type}"
         session = self.Session()
         try:
             recent_after = self._utcnow() - timedelta(seconds=self.settings.event_cooldown_seconds)
@@ -178,30 +238,63 @@ class EdgeService:
             ).first()
             if recent:
                 return False
+            event_time = event.created_at or self._utcnow()
             body: dict[str, Any] = {
-                "event_type": "entry",
-                "person_type": identity["person_type"] if identity else "unknown",
-                "occurred_at": now.isoformat(),
+                "event_id": event.id,
+                "edge_device_id": self.settings.device_id,
+                "person_id": event.person_id,
+                "person_type": event.person_type,
+                "event_type": event.event_type,
+                "event_time": event_time.replace(tzinfo=timezone.utc).astimezone(ZoneInfo(self.settings.timezone)).isoformat(),
+                "camera_id": event.camera_id,
+                "similarity_score": event.confidence,
+                "camera_photo_path": event.photo_path,
             }
-            if confidence is not None:
-                body["confidence"] = round(max(0.0, min(1.0, confidence)), 6)
-            if identity:
-                body["person_id"] = identity["person_id"]
-            else:
-                body["embedding"] = np.asarray(embedding, dtype=np.float32).tolist()
-            event_id = str(uuid.uuid4())
             session.add(AccessLogOutbox(
-                id=event_id,
-                idempotency_key=f"{self.settings.device_id}:{event_id}",
+                id=event.id,
+                idempotency_key=f"{self.settings.device_id}:{event.id}",
                 subject_signature=signature,
                 payload=json.dumps(body, separators=(",", ":")),
                 status="pending",
                 next_attempt_at=self._utcnow(),
+                endpoint="/api/v1/learning-centers/access-logs",
             ))
             session.commit()
             return True
         finally:
             session.close()
+
+    def queue_heartbeat(self, payload: dict[str, Any]) -> bool:
+        if not self.settings.configured:
+            return False
+        event_id = str(uuid.uuid4())
+        session = self.Session()
+        try:
+            session.add(AccessLogOutbox(
+                id=event_id,
+                idempotency_key=f"{self.settings.device_id}:heartbeat:{event_id}",
+                subject_signature="heartbeat",
+                payload=json.dumps(payload, separators=(",", ":")),
+                status="pending",
+                next_attempt_at=self._utcnow(),
+                endpoint="/api/v1/edge/heartbeat",
+            ))
+            session.commit()
+            return True
+        finally:
+            session.close()
+
+    def queue_recognition(self, identity: dict[str, str] | None, confidence: float | None, embedding: np.ndarray, subject_hint: str | None = None) -> bool:
+        """Compatibility wrapper retained for integrations written before event storage."""
+        if identity is None:
+            return False
+        event = RecognitionEvent(
+            id=str(uuid.uuid4()), camera_id="legacy", event_type="entry",
+            person_id=identity.get("person_id"), person_type=identity.get("person_type", "employee"),
+            person_name=identity.get("name"), subject_signature=identity.get("person_id") or subject_hint or "legacy",
+            confidence=confidence, created_at=self._utcnow(),
+        )
+        return self.queue_access_event(event)
 
     def deliver_due_events(self, limit: int = 25) -> int:
         if not self.settings.configured:
@@ -229,11 +322,11 @@ class EdgeService:
             if event is None or event.status not in {"pending", "retry"}:
                 return False
             try:
-                self._request_json("POST", "/api/v1/learning-centers/access-logs", body=json.loads(event.payload), headers={"Idempotency-Key": event.idempotency_key})
+                self._request_json("POST", event.endpoint, body=json.loads(event.payload), headers={"Idempotency-Key": event.idempotency_key})
             except EdgeRequestError as error:
                 event.attempts += 1
                 event.last_error = str(error)
-                if error.status_code in {401, 403, 422}:
+                if error.status_code in TERMINAL_STATUS_CODES:
                     event.status = "failed"
                     event.next_attempt_at = None
                 else:
@@ -271,7 +364,8 @@ class EdgeService:
         request = Request(url, data=data, headers=request_headers, method=method)
         try:
             with urlopen(request, timeout=self.settings.request_timeout_seconds) as response:
-                return json.loads(response.read().decode("utf-8"))
+                response_body = response.read().decode("utf-8")
+                return json.loads(response_body) if response_body else None
         except HTTPError as error:
             detail = error.read().decode("utf-8", errors="replace")[:500]
             raise EdgeRequestError(f"HTTP {error.code}: {detail}", error.code) from error

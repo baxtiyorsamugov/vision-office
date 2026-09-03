@@ -13,28 +13,30 @@
 
 | Stage | Status | Goal | Acceptance criteria | Dependencies | Verification |
 | --- | --- | --- | --- | --- | --- |
-| Foundation | IN PROGRESS | Establish delivery rules, configuration, logging and safe SQLite migrations. | Documentation is present; migration and logging work is tested before this stage moves to DONE. | Local SQLite, project config. | `python -m unittest discover -s tests` plus manual startup. |
-| ERP data sync | TODO | Synchronize people, reference photos and 512-value embeddings through an adapter and mock ERP. | Added/changed people reach local cache; invalid photos have a recorded reason. | Foundation; ERP mock contract. | Adapter and sync tests with mock HTTP responses. |
-| Recognition events | TODO | Persist entry/exit, event images and deduplicated local events. | One passage creates one event with camera, direction, confidence and image path. | ERP data sync; camera config. | Database and cooldown tests; manual video fixture. |
-| Two cameras | TODO | Run entry and exit cameras independently. | A broken stream reconnects without stopping the other camera. | Recognition events; supervisor. | Two video/RTSP fixture test and failure injection. |
-| Reliable delivery | TODO | Deliver outbox events to ERP with idempotency and retries. | Offline events persist and are sent once after recovery. | Recognition events; ERP adapter. | Retry, restart and duplicate-delivery tests. |
-| Health and alerts | TODO | Monitor Edge, DB, ERP, RTSP and application; notify Telegram. | Health state, incident history, deduplicated alert and recovery alert exist. | Two cameras; logging; Telegram config. | Mock failures and recovery scenarios. |
-| Validation and rollout | TODO | Benchmark and prepare production rollout. | Recommended 1/2-camera settings and operational acceptance checklist are recorded. | All previous stages. | Benchmark report, restart and offline recovery checks. |
+| Foundation | DONE | Establish delivery rules, configuration, logging and safe SQLite migrations. | Additive migrations, validation and rotating logs are implemented and tested. | Local SQLite, project config. | `unittest` migration/config/log tests; real SQLite migration smoke check. |
+| ERP data sync | DONE | Synchronize people, reference photos and 512-value embeddings through an adapter and mock ERP. | Cache accepts normalized ERP vectors; photo fallback records invalid reasons or local photo/embedding. | Foundation; ERP mock contract. | Mock sync, invalid input and photo-fallback tests. |
+| Recognition events | BLOCKED | Persist entry/exit, event images and deduplicated local events. | Local immutable events carry camera, direction, confidence and optional image path; unknown faces never leave the device. Code and automated checks are complete; recognition UAT needs a known-face fixture or live camera. | ERP data sync; camera config. | Event deduplication test; known-face video/RTSP acceptance pending. |
+| Two cameras | IN PROGRESS | Run entry and exit cameras independently. | Supervisor and reconnect logic are implemented; physical two-stream acceptance remains. | Recognition events; supervisor. | Two RTSP/video fixture test and failure injection. |
+| Reliable delivery | DONE | Deliver outbox events to ERP with idempotency and retries. | Events and heartbeat use durable outbox; network retry survives restart. | Recognition events; ERP adapter. | Retry-then-send unit test and payload contract test. |
+| Health and alerts | BLOCKED | Monitor Edge, DB, ERP, RTSP and application; notify Telegram. | Health state, incident history, local notification outbox and recovery tracking are implemented; production Telegram delivery awaits credentials. | Two cameras; logging; Telegram config. | Failure/recovery unit test; production Telegram UAT pending. |
+| Validation and rollout | BLOCKED | Benchmark and prepare production rollout. | Code-level checks pass; live 1/2-camera benchmarks need approved streams. | All previous stages. | Benchmark report, restart and offline recovery checks. |
 
 ## Completed work
 
 | Date | Status | Result | Evidence |
 | --- | --- | --- | --- |
 | 2026-09-03 | DONE | Documentation governance, ERP mock contract, runbook and engineering playbook created. | This file; `docs/` documents; README links. |
+| 2026-09-03 | DONE | Foundation, mock ERP cache/photo fallback, local recognition events, durable delivery, camera supervisor and Health Checker implemented. | 16 unit tests, CPU install sanity check, API import, real SQLite migration smoke check and headless video pipeline run (22.6 capture FPS, 16 ms frame age). |
 
-## Active stage: Foundation
+## Active stage: Two cameras
 
 | Task | Status | Modules | Done when |
 | --- | --- | --- | --- |
 | Documentation governance | DONE | `ROADMAP.md`, `docs/`, `README.md` | Documents are linked and describe current project truth. |
-| Structured logging | TODO | `core/`, runtime entrypoints | Rotating logs include device, camera and event context. |
-| Safe SQLite migrations | TODO | `database/` | Existing databases receive additive schema changes without losing attendance history. |
-| Configuration validation | TODO | `config/`, edge config | Invalid/missing camera and integration config fail with actionable messages. |
+| Structured logging | DONE | `core/logging_setup.py`, runtime entrypoints | Rotating UTF-8 logs are created and carry process/module context. |
+| Safe SQLite migrations | DONE | `database/migrations.py`, `database/` | Existing databases receive additive schema changes without losing attendance history. |
+| Configuration validation | DONE | `core/config.py`, `core/edge/config.py` | Invalid/missing cameras and Edge credentials fail with actionable messages. |
+| Physical two-camera acceptance | IN PROGRESS | `core/supervisor.py`, `core/video/streamer.py`, `main.py` | Entry and exit streams run for at least 30 minutes; disabling one stream does not stop the other. |
 
 ## External blockers
 
@@ -43,6 +45,7 @@
 | BLOCKED | Production ERP base URL, authentication method and final request/response examples. | Switching ERP adapter from mock to production. | Use the documented mock contract. |
 | BLOCKED | Telegram bot token and responsible chat IDs. | Production alert delivery. | Log incidents locally; no Telegram messages are sent. |
 | BLOCKED | Two stable RTSP URLs or approved video fixtures representing entry and exit cameras. | Two-camera acceptance and benchmark. | Use local video fixtures for automated tests. |
+| BLOCKED | A short approved video or live stream where a registered/remote employee is visible. | Recognition-event acceptance including event photo and ERP payload. | Unit tests cover event storage and delivery contract. |
 
 ## Update protocol
 
@@ -54,4 +57,4 @@
 
 ## Next step
 
-Implement the remaining Foundation tasks: structured logging, additive SQLite migration runner and configuration validation. Keep all other stages in `TODO` until Foundation is verified.
+Run the two-camera acceptance with the actual entry and exit RTSP streams. Then perform a production ERP and Telegram UAT using the finalized credentials and request examples.

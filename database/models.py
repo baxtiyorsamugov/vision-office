@@ -41,6 +41,10 @@ class RemotePerson(Base):
     fio = Column(String(255), nullable=True)
     embedding = Column(JSON, nullable=True)
     active = Column(Boolean, nullable=False, default=True)
+    photo_url = Column(String(1024), nullable=True)
+    photo_path = Column(String(1024), nullable=True)
+    embedding_status = Column(String(32), nullable=False, default="pending")
+    embedding_error = Column(Text, nullable=True)
     updated_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
 
 
@@ -62,6 +66,50 @@ class AccessLogOutbox(Base):
     subject_signature = Column(String(128), nullable=False, index=True)
     payload = Column(Text, nullable=False)
     status = Column(String(20), nullable=False, default='pending', index=True)
+    attempts = Column(Integer, nullable=False, default=0)
+    last_error = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    next_attempt_at = Column(DateTime(timezone=True), nullable=True)
+    sent_at = Column(DateTime(timezone=True), nullable=True)
+    endpoint = Column(String(255), nullable=False, default="/api/v1/learning-centers/access-logs")
+
+
+class RecognitionEvent(Base):
+    """Local immutable recognition audit event, including unknown faces."""
+    __tablename__ = "recognition_events"
+
+    id = Column(String(36), primary_key=True)
+    camera_id = Column(String(100), nullable=False, index=True)
+    event_type = Column(String(20), nullable=False)
+    person_id = Column(String(36), nullable=True, index=True)
+    person_type = Column(String(20), nullable=False, default="unknown")
+    person_name = Column(String(255), nullable=True)
+    subject_signature = Column(String(128), nullable=False, index=True)
+    confidence = Column(Float, nullable=True)
+    photo_path = Column(String(1024), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow, index=True)
+
+
+class HealthIncident(Base):
+    __tablename__ = "health_incidents"
+
+    id = Column(String(36), primary_key=True)
+    component = Column(String(100), nullable=False, index=True)
+    status = Column(String(20), nullable=False)
+    message = Column(Text, nullable=False)
+    opened_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    recovered_at = Column(DateTime(timezone=True), nullable=True)
+    notification_sent_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class NotificationOutbox(Base):
+    """Persistent Telegram notification with bounded retry semantics."""
+    __tablename__ = "notification_outbox"
+
+    id = Column(String(36), primary_key=True)
+    channel = Column(String(30), nullable=False)
+    payload = Column(Text, nullable=False)
+    status = Column(String(20), nullable=False, default="pending", index=True)
     attempts = Column(Integer, nullable=False, default=0)
     last_error = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)

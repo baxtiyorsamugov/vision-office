@@ -5,9 +5,11 @@ system:
 
 cameras:
   - id: "reception_01"
+    name: "Reception entry"
     rtsp_url: "rtsp://USERNAME:PASSWORD@CAMERA_IP:554/Streaming/Channels/101"
     is_active: true
-    zone_type: "clean_zone"
+    event_type: "entry"
+    location: "Reception"
 
 ai:
   yolo_model: "yolov8n.pt"
@@ -40,3 +42,13 @@ edge_integration:
   event_cooldown_seconds: 60
   request_timeout_seconds: 10
   timezone: "Asia/Tashkent"
+
+# Telegram is optional. Keep its token and chat ids only in settings.yaml.
+health:
+  enabled: true
+  check_interval_seconds: 5
+  failure_threshold: 3
+  heartbeat_interval_seconds: 60
+  telegram_enabled: false
+  telegram_bot_token: "REPLACE_ON_DEVICE_ONLY"
+  telegram_chat_ids: []

@@ -68,10 +68,11 @@ def _load_known_faces(Session, edge_service=None, remote_mode=False):
     finally:
         session.close()
 
-def face_recognition_worker(input_queue, shared_memory, face_timings, face_metrics):
+def face_recognition_worker(input_queue, shared_memory, face_timings, face_metrics, camera_id="reception_01", event_type="entry"):
     from core.ai.recognizer import FaceRecognizer
     from core.edge.config import load_edge_settings
     from core.edge.service import EdgeService
+    from core.events import RecognitionEventStore
     from database.manager import get_engine
     from sqlalchemy.orm import sessionmaker
     
@@ -81,6 +82,10 @@ def face_recognition_worker(input_queue, shared_memory, face_timings, face_metri
     edge_service = EdgeService(edge_settings) if edge_settings.configured else None
     engine = get_engine()
     Session = sessionmaker(bind=engine)
+    event_store = RecognitionEventStore(
+        engine,
+        cooldown_seconds=edge_settings.event_cooldown_seconds,
+    )
     known_names, known_embeddings = _load_known_faces(Session, edge_service, edge_settings.enabled)
     last_cache_refresh = time.monotonic()
     print(f"🤖 [Worker] Загружено эмбеддингов: {len(known_names)}")
@@ -132,18 +137,54 @@ def face_recognition_worker(input_queue, shared_memory, face_timings, face_metri
                 threshold = edge_settings.recognition_threshold if edge_service else 0.25
                 if max_sim > threshold:
                     shared_memory[track_id] = {"name": best_match["name"], **best_match, "confidence": max_sim}
-                    if edge_service:
-                        edge_service.queue_recognition(best_match, max_sim, embedding, subject_hint=f"track:{track_id}")
+                    event = event_store.record(
+                        camera_id=camera_id,
+                        event_type=event_type,
+                        identity=best_match,
+                        confidence=max_sim,
+                        embedding=embedding,
+                        image=face_img,
+                        subject_hint=f"known:{best_match.get('person_id') or track_id}",
+                    )
+                    if event is not None and edge_service:
+                        edge_service.queue_access_event(event)
                     print(f"✅ Узнал: {best_match['name']} ({max_sim:.2f})")
                 else:
                     shared_memory[track_id] = {"name": UNKNOWN_STATUS, "confidence": max_sim}
-                    if edge_service:
-                        edge_service.queue_recognition(None, max_sim, embedding, subject_hint=f"unknown:{track_id}")
+                    event_store.record(
+                        camera_id=camera_id,
+                        event_type=event_type,
+                        identity=None,
+                        confidence=max_sim,
+                        embedding=embedding,
+                        image=face_img,
+                        subject_hint=f"unknown:{track_id}",
+                    )
             elif embedding is not None and edge_service:
                 # A synchronized but empty cache still means this is an unknown face.
                 embedding = np.asarray(embedding, dtype=np.float32)
                 shared_memory[track_id] = {"name": UNKNOWN_STATUS}
-                edge_service.queue_recognition(None, None, embedding, subject_hint=f"unknown:{track_id}")
+                event_store.record(
+                    camera_id=camera_id,
+                    event_type=event_type,
+                    identity=None,
+                    confidence=None,
+                    embedding=embedding,
+                    image=face_img,
+                    subject_hint=f"unknown:{track_id}",
+                )
+            elif embedding is not None:
+                embedding = np.asarray(embedding, dtype=np.float32)
+                shared_memory[track_id] = {"name": UNKNOWN_STATUS}
+                event_store.record(
+                    camera_id=camera_id,
+                    event_type=event_type,
+                    identity=None,
+                    confidence=None,
+                    embedding=embedding,
+                    image=face_img,
+                    subject_hint=f"unknown:{track_id}",
+                )
             else:
                 # Если лицо отвернуто/размыто, пишем статус, чтобы попробовать еще раз
                 shared_memory[track_id] = {"name": SEARCHING_STATUS}
@@ -152,8 +193,10 @@ def face_recognition_worker(input_queue, shared_memory, face_timings, face_metri
             print(f"❌ Ошибка Worker: {e}")
 
 class AI_Engine:
-    def __init__(self, detection_imgsz=960, detection_fps=DEFAULT_DETECTION_FPS):
+    def __init__(self, detection_imgsz=960, detection_fps=DEFAULT_DETECTION_FPS, camera_id="reception_01", event_type="entry"):
         self.model = YOLO("yolov8n-face.pt")
+        self.camera_id = camera_id
+        self.event_type = event_type
         self.detection_imgsz = max(640, int(detection_imgsz))
         self.detection_interval_sec = 1 / max(1, min(30, float(detection_fps)))
         self.using_cuda = torch.cuda.is_available()
@@ -193,7 +236,11 @@ class AI_Engine:
         self.detector_thread = threading.Thread(target=self._detection_worker, daemon=True)
         self.detector_thread.start()
         
-        self.worker = mp.Process(target=face_recognition_worker, args=(self.input_queue, self.shared_memory, self.face_timings, self.face_metrics), daemon=True)
+        self.worker = mp.Process(
+            target=face_recognition_worker,
+            args=(self.input_queue, self.shared_memory, self.face_timings, self.face_metrics, self.camera_id, self.event_type),
+            daemon=True,
+        )
         self.worker.start()
 
     def _warm_up_model(self):

@@ -1,46 +1,57 @@
-import cv2
-import yaml
+"""Vision Office live camera entrypoint and multi-camera supervisor target."""
+
+from __future__ import annotations
+
+import logging
+import multiprocessing as mp
 import time
-from core.video.streamer import VideoStream
-from core.ai.engine import AI_Engine
-from core.hr import HRManager
-from core.edge.config import load_edge_settings
-from core.performance import write_runtime_status
+
+import cv2
 import onnxruntime as ort
 
-def main():
-    with open("config/settings.yaml", "r") as f:
-        cfg = yaml.safe_load(f)
-    
-    cam_url = cfg['cameras'][0]['rtsp_url']
-    
-    print("🚀 Запуск боевого AI Engine...")
-    ai_settings = cfg.get('ai', {})
+from core.ai.engine import AI_Engine
+from core.config import AppSettings, CameraSettings, ConfigurationError, load_app_settings
+from core.edge.config import load_edge_settings
+from core.hr import HRManager
+from core.logging_setup import configure_logging
+from core.overlay import draw_detection_label
+from core.performance import write_camera_runtime_status
+from core.video.streamer import VideoStream
+from database.manager import init_db
+
+
+logger = logging.getLogger("vision_office.main")
+
+
+def run_camera(camera: CameraSettings, ai_settings: dict, log_level: str = "INFO") -> None:
+    """Run one camera in its own process. A failure never affects sibling cameras."""
+    configure_logging(log_level)
+    init_db()
+    logger.info("Starting camera camera_id=%s event_type=%s", camera.id, camera.event_type)
     ai = AI_Engine(
-        detection_imgsz=ai_settings.get('face_detection_imgsz', 960),
-        detection_fps=ai_settings.get('face_detection_fps', 20),
+        detection_imgsz=ai_settings.get("face_detection_imgsz", 960),
+        detection_fps=ai_settings.get("face_detection_fps", 20),
+        camera_id=camera.id,
+        event_type=camera.event_type,
     )
     edge_enabled = load_edge_settings().enabled
     hr = None if edge_enabled else HRManager(cooldown_minutes=1)
-    
-    print(f"📡 Подключение к: {cam_url}")
-    stream = VideoStream(cam_url).start()
+    stream = VideoStream(camera.rtsp_url).start()
+    window_name = f"Smart Vision AI - {camera.name}"
     last_status_update = 0.0
-
     try:
         while True:
             frame = stream.read()
             if frame is None:
                 time.sleep(0.005)
                 continue
-
-            # Keep the camera's native frame for face detection and high-detail crops.
-            # OpenCV may scale the window to the monitor, but the AI keeps the original pixels.
             results = ai.process_frame(frame)
-
             if time.monotonic() - last_status_update >= 1:
-                write_runtime_status({
+                write_camera_runtime_status(camera.id, {
                     "running": True,
+                    "camera_name": camera.name,
+                    "event_type": camera.event_type,
+                    "location": camera.location,
                     "onnx_providers": ort.get_available_providers(),
                     **stream.stats(),
                     **ai.status_snapshot(),
@@ -48,26 +59,61 @@ def main():
                 last_status_update = time.monotonic()
 
             for item in results:
-                x1, y1, x2, y2 = item['box']
-                name = item['name']
+                x1, y1, x2, y2 = item["box"]
+                name = item["name"]
                 if hr is not None:
                     hr.register_presence(name)
+                frame = draw_detection_label(frame, (x1, y1, x2, y2), name)
 
-                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                (text_w, text_h), _ = cv2.getTextSize(name, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)
-                cv2.rectangle(frame, (x1, y1 - text_h - 15), (x1 + text_w + 10, y1), (0, 255, 0), -1)
-                cv2.putText(frame, name, (x1 + 5, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
-
-            # AI keeps native pixels; the operator gets a monitor-friendly preview.
             preview = cv2.resize(frame, (1280, 720), interpolation=cv2.INTER_AREA)
-            cv2.imshow("Smart Vision AI - RTSP LIVE", preview)
-            if cv2.waitKey(1) & 0xFF == ord('q'):
+            cv2.imshow(window_name, preview)
+            if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
+    except Exception:
+        logger.exception("Camera worker failed camera_id=%s", camera.id)
+        raise
     finally:
-        write_runtime_status({"running": False, "yolo_device": "stopped"})
+        write_camera_runtime_status(camera.id, {"running": False, "camera_name": camera.name, **stream.stats()})
         stream.stop()
         ai.stop()
-        cv2.destroyAllWindows()
+        cv2.destroyWindow(window_name)
+
+
+def main() -> None:
+    try:
+        settings: AppSettings = load_app_settings()
+    except ConfigurationError as error:
+        raise SystemExit(f"Configuration error: {error}") from error
+    configure_logging(settings.log_level)
+    edge_settings = load_edge_settings()
+    if error := edge_settings.validation_error():
+        raise SystemExit(f"Configuration error: {error}")
+    init_db()
+    active_cameras = tuple(camera for camera in settings.cameras if camera.is_active)
+    if len(active_cameras) == 1:
+        from core.health import health_worker
+
+        health_stop_event = mp.Event()
+        health_process = mp.Process(
+            target=health_worker,
+            args=(health_stop_event, settings.log_level),
+            name="vision-health-checker",
+            daemon=True,
+        )
+        health_process.start()
+        try:
+            run_camera(active_cameras[0], settings.ai, settings.log_level)
+        finally:
+            health_stop_event.set()
+            health_process.join(timeout=5)
+            if health_process.is_alive():
+                health_process.terminate()
+        return
+    from core.supervisor import CameraSupervisor
+
+    logger.info("Starting multi-camera supervisor camera_count=%s", len(active_cameras))
+    CameraSupervisor(active_cameras, settings.ai, settings.log_level).run()
+
 
 if __name__ == "__main__":
     main()
