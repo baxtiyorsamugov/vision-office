@@ -41,12 +41,8 @@ def run_camera(camera: CameraSettings, ai_settings: dict, log_level: str = "INFO
     last_status_update = 0.0
     try:
         while True:
-            frame = stream.read()
-            if frame is None:
-                time.sleep(0.005)
-                continue
-            results = ai.process_frame(frame)
             if time.monotonic() - last_status_update >= 1:
+                # Publish even without a frame. This lets Health Checker detect a frozen reader.
                 write_camera_runtime_status(camera.id, {
                     "running": True,
                     "camera_name": camera.name,
@@ -57,6 +53,11 @@ def run_camera(camera: CameraSettings, ai_settings: dict, log_level: str = "INFO
                     **ai.status_snapshot(),
                 })
                 last_status_update = time.monotonic()
+            frame = stream.read()
+            if frame is None:
+                time.sleep(0.005)
+                continue
+            results = ai.process_frame(frame)
 
             for item in results:
                 x1, y1, x2, y2 = item["box"]

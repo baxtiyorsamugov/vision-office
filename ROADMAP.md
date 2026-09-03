@@ -27,6 +27,7 @@
 | --- | --- | --- | --- |
 | 2026-09-03 | DONE | Documentation governance, ERP mock contract, runbook and engineering playbook created. | This file; `docs/` documents; README links. |
 | 2026-09-03 | DONE | Foundation, mock ERP cache/photo fallback, local recognition events, durable delivery, camera supervisor and Health Checker implemented. | 16 unit tests, CPU install sanity check, API import, real SQLite migration smoke check and headless video pipeline run (22.6 capture FPS, 16 ms frame age). |
+| 2026-09-03 | DONE | Health Checker hotfix: stale camera frames are now published during reader stalls; inactive test artifacts are ignored. | Regression test for stale configured camera plus full test suite. |
 
 ## Active stage: Two cameras
 

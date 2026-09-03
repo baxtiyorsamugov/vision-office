@@ -21,14 +21,6 @@ def run_test(headless=False, duration_seconds=None):
 
     try:
         while True:
-            frame = stream.read()
-            if frame is None:
-                time.sleep(0.005)
-                continue
-
-            # Keep original video resolution so the benchmark matches the live pipeline.
-            results = ai.process_frame(frame)
-
             if time.monotonic() - last_status_update >= 1:
                 write_camera_runtime_status("test_video", {
                     "running": True,
@@ -39,6 +31,13 @@ def run_test(headless=False, duration_seconds=None):
                     **ai.status_snapshot(),
                 })
                 last_status_update = time.monotonic()
+            frame = stream.read()
+            if frame is None:
+                time.sleep(0.005)
+                continue
+
+            # Keep original video resolution so the benchmark matches the live pipeline.
+            results = ai.process_frame(frame)
 
             for item in results:
                 x1, y1, x2, y2 = item['box']

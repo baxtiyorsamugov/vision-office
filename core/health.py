@@ -22,6 +22,7 @@ from sqlalchemy.orm import sessionmaker
 from core.edge.config import EdgeSettings, load_edge_settings
 from core.edge.service import EdgeService
 from core.events import RecognitionEventStore
+from core.config import ConfigurationError, load_app_settings
 from core.performance import PROJECT_ROOT, read_runtime_status
 from database.manager import get_engine
 from database.migrations import run_migrations
@@ -97,9 +98,18 @@ class HealthChecker:
     def _camera_statuses(self) -> dict[str, tuple[str, str]]:
         runtime = read_runtime_status() or {}
         cameras = runtime.get("cameras") or ([runtime] if runtime.get("camera_id") or runtime.get("running") else [])
-        if not cameras:
+        configured_ids = self._configured_camera_ids()
+        if configured_ids is not None:
+            cameras_by_id = {str(camera.get("camera_id")): camera for camera in cameras}
+            cameras = [cameras_by_id[camera_id] for camera_id in configured_ids if camera_id in cameras_by_id]
+            missing = configured_ids - set(cameras_by_id)
+        else:
+            missing = set()
+        if not cameras and not missing:
             return {"application": ("failed", "No camera runtime status is available")}
         result: dict[str, tuple[str, str]] = {}
+        for camera_id in sorted(missing):
+            result[f"camera:{camera_id}"] = ("failed", "Camera worker has not published runtime status")
         for camera in cameras:
             camera_id = str(camera.get("camera_id") or "unknown")
             age = camera.get("frame_age_ms")
@@ -111,6 +121,14 @@ class HealthChecker:
             else:
                 result[f"camera:{camera_id}"] = ("failed", str(camera.get("stream_error") or "Camera is disconnected or frame is stale"))
         return result
+
+    @staticmethod
+    def _configured_camera_ids() -> set[str] | None:
+        try:
+            settings = load_app_settings()
+        except ConfigurationError:
+            return None
+        return {camera.id for camera in settings.cameras if camera.is_active}
 
     def _edge_status(self) -> tuple[str, str]:
         if not self.edge_settings.enabled:

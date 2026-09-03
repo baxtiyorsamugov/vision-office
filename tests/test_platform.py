@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 from sqlalchemy import create_engine, inspect
@@ -120,6 +121,19 @@ class PlatformTests(unittest.TestCase):
             self.assertIsNotNone(incident.recovered_at)
         finally:
             session.close()
+
+    def test_health_checker_flags_stale_configured_camera_and_ignores_test_artifact(self):
+        checker = HealthChecker(HealthSettings(camera_stale_seconds=15), EdgeSettings(), engine=self.engine)
+        checker._configured_camera_ids = lambda: {"entry"}
+        with patch("core.health.read_runtime_status", return_value={
+            "cameras": [
+                {"camera_id": "entry", "running": True, "stream_status": "connected", "frame_age_ms": 16000},
+                {"camera_id": "test_video", "running": False, "stream_status": "reconnecting", "frame_age_ms": 999999},
+            ]
+        }):
+            statuses = checker._camera_statuses()
+        self.assertEqual(set(statuses), {"camera:entry"})
+        self.assertEqual(statuses["camera:entry"][0], "failed")
 
 
 if __name__ == "__main__":
