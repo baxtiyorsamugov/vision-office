@@ -9,6 +9,10 @@ class VideoStream:
         self.lock = threading.Lock()
         self.frame_index = 0
         self.last_read_index = 0
+        self.published_at = 0.0
+        self.capture_fps = 0.0
+        self._fps_window_started = time.monotonic()
+        self._fps_window_frames = 0
         
         self.stream = cv2.VideoCapture(src)
         
@@ -52,6 +56,13 @@ class VideoStream:
         with self.lock:
             self.frame = frame
             self.frame_index += 1
+            self.published_at = time.monotonic()
+            self._fps_window_frames += 1
+            elapsed = self.published_at - self._fps_window_started
+            if elapsed >= 1:
+                self.capture_fps = self._fps_window_frames / elapsed
+                self._fps_window_frames = 0
+                self._fps_window_started = self.published_at
 
     def read(self):
         with self.lock:
@@ -59,6 +70,13 @@ class VideoStream:
                 return None
             self.last_read_index = self.frame_index
             return self.frame
+
+    def stats(self):
+        with self.lock:
+            return {
+                "capture_fps": round(self.capture_fps, 1),
+                "frame_age_ms": round(max(0.0, time.monotonic() - self.published_at) * 1000, 1) if self.published_at else None,
+            }
 
     def stop(self):
         self.stopped = True

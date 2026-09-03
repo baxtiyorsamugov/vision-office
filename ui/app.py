@@ -21,7 +21,9 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
 from database.manager import get_engine
-from database.models import Attendance, Base, Employee
+from database.models import AccessLogOutbox, Attendance, Base, EdgeSyncState, Employee, RemotePerson
+from core.edge.config import load_edge_settings
+from core.performance import read_runtime_status
 
 
 st.set_page_config(page_title="Vision Office", page_icon="VO", layout="wide", initial_sidebar_state="collapsed")
@@ -209,6 +211,8 @@ def render_control_center():
     metrics[2].metric("События сегодня", event_count)
     metrics[3].metric("Камеры", 1, "RTSP")
 
+    render_performance_panel()
+
     st.markdown("<hr class='section-rule'>", unsafe_allow_html=True)
     left, right = st.columns(2, gap="large")
     with left:
@@ -241,6 +245,31 @@ def render_control_center():
         st.markdown("<div class='empty-state'>Новых событий пока нет.</div>", unsafe_allow_html=True)
     else:
         st.dataframe(recent_events, use_container_width=True, hide_index=True)
+
+
+def render_performance_panel():
+    st.markdown("<hr class='section-rule'>", unsafe_allow_html=True)
+    st.subheader("Производительность edge-устройства")
+    status = read_runtime_status()
+    if not status:
+        st.info("Показатели появятся после запуска камеры. Dashboard не обрабатывает видеокадры.")
+        return
+    if not status.get("running"):
+        st.info("Камера остановлена. Последние показатели сброшены.")
+        return
+    metrics = st.columns(5)
+    metrics[0].metric("YOLO", status.get("yolo_device", "—"))
+    metrics[1].metric("Захват", f"{status.get('capture_fps', 0)} FPS")
+    metrics[2].metric("Детекция", f"{status.get('detection_fps', 0)} FPS")
+    metrics[3].metric("YOLO p95", f"{status.get('detection_ms_p95') or '—'} ms")
+    metrics[4].metric("FaceID p95", f"{status.get('face_ms_p95') or '—'} ms")
+    st.caption(
+        f"Возраст кадра: {status.get('frame_age_ms') or '—'} ms · "
+        f"FaceID задач: {status.get('face_tasks', 0)} · "
+        f"Пропущено задач: {status.get('face_dropped', 0)} · "
+        f"Очередь FaceID: {status.get('face_queue_size', '—')} · "
+        f"ONNX: {', '.join(status.get('onnx_providers', []))}"
+    )
 
 
 def load_attendance(selected_date):
@@ -328,6 +357,10 @@ def render_people():
 
 
 def render_registration():
+    edge_settings = load_edge_settings()
+    if edge_settings.enabled:
+        render_edge_status(edge_settings)
+        return
     render_header("Регистрация сотрудника", "Создание профиля и биометрического шаблона")
     with st.form("registration_form", clear_on_submit=True):
         left, right = st.columns([3, 2], gap="large")
@@ -365,6 +398,36 @@ def render_registration():
     finally:
         session.close()
     st.success("Профиль создан и готов к распознаванию.")
+
+
+def render_edge_status(edge_settings):
+    render_header("Синхронизация людей", "Рабочий каталог людей управляется на backend")
+    session = Session()
+    try:
+        active_people = session.query(RemotePerson).filter(RemotePerson.active.is_(True)).count()
+        embeddings = session.query(RemotePerson).filter(
+            RemotePerson.active.is_(True), RemotePerson.embedding.is_not(None)
+        ).count()
+        queued = session.query(AccessLogOutbox).filter(AccessLogOutbox.status.in_(["pending", "retry"])).count()
+        failed = session.query(AccessLogOutbox).filter(AccessLogOutbox.status == "failed").count()
+        sync_state = session.get(EdgeSyncState, 1)
+    finally:
+        session.close()
+
+    if not edge_settings.configured:
+        st.error("Интеграция включена, но не заполнены base_url, device_api_key или device_id в локальном settings.yaml.")
+        return
+    metrics = st.columns(4)
+    metrics[0].metric("Активные люди", active_people)
+    metrics[1].metric("С embeddings", embeddings)
+    metrics[2].metric("В очереди", queued)
+    metrics[3].metric("Требуют внимания", failed)
+    if sync_state and sync_state.last_error:
+        st.warning(f"Последняя ошибка синхронизации: {sync_state.last_error}")
+    elif sync_state and sync_state.last_incremental_sync_at:
+        st.success(f"Последняя синхронизация: {sync_state.last_incremental_sync_at}")
+    else:
+        st.info("Синхронизация начнётся при запуске камеры. Локальное добавление людей в рабочем режиме отключено.")
 
 
 def render_developer_api():

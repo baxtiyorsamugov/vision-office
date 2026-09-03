@@ -40,6 +40,18 @@ python -m uvicorn api.server:app --host 127.0.0.1 --port 8000
 
 API documentation: http://127.0.0.1:8000/docs
 
+## Edge-device integration
+
+Vision Office can operate as an edge device for a Learning Center backend. Copy the
+`edge_integration` section from `config/settings.example.yaml` to the untracked
+`config/settings.yaml`, set `enabled: true`, and enter the backend URL, device UUID,
+and newly issued device API key. Do not use an administrator JWT on the device.
+
+When enabled, the backend is the only source of people: the app synchronizes its
+local matching cache from `/persons/sync`, sends `entry` and `unknown` events through
+an on-disk outbox, and disables local registration. The first synchronization happens
+after the recognition worker starts. Review its status on the **Registration** page.
+
 ## Transfer archive
 
 ```powershell

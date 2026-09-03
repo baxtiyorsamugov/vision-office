@@ -14,6 +14,10 @@ data/*.db
 data/logs/*
 data/faces/*
 !data/faces/.gitkeep
+data/embeddings/*
+data/imports/*
+data/admin_access_token.txt
+data/runtime_status.json
 
 # Исключаем видеофайлы ВЕЗДЕ в проекте
 *.mp4

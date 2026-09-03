@@ -47,7 +47,7 @@ def run_benchmark(source, model_path, max_frames, every_n_frames, max_faces_per_
         torch.backends.cudnn.benchmark = True
     yolo_options = {
         "device": 0 if using_cuda else "cpu",
-        "quantize": 16 if using_cuda else None,
+        "quantize": None,
     }
     recognizer = FaceRecognizer()
     capture = cv2.VideoCapture(source)

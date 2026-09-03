@@ -13,6 +13,10 @@ ai:
   yolo_model: "yolov8n.pt"
   conf_threshold: 0.5
   iou_threshold: 0.45
+  # Higher input detail for distant faces. RTX 3070 is the target runtime.
+  face_detection_imgsz: 960
+  # Overlay refresh rate. The detector keeps only the newest camera frame.
+  face_detection_fps: 20
 
 database:
   type: "sqlite"
@@ -21,3 +25,18 @@ database:
 security:
   night_mode_start: "20:00"
   night_mode_end: "07:30"
+
+# Keep device_api_key only in the untracked settings.yaml on each edge computer.
+# The backend is the source of people and embeddings; this computer only caches them.
+edge_integration:
+  enabled: false
+  base_url: "https://backend.example.com"
+  device_api_key: "REPLACE_ON_DEVICE_ONLY"
+  device_id: "REPLACE_WITH_DEVICE_UUID"
+  sync_interval_seconds: 300
+  full_sync_interval_seconds: 86400
+  page_size: 200
+  recognition_threshold: 0.40
+  event_cooldown_seconds: 60
+  request_timeout_seconds: 10
+  timezone: "Asia/Tashkent"
