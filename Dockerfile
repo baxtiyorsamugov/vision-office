@@ -28,6 +28,8 @@ RUN python -m pip install --upgrade pip setuptools wheel \
     && python -m pip install -r requirements-docker-cpu.txt
 
 COPY . ./
-RUN mkdir -p /app/data /app/models /app/config
+RUN mkdir -p /app/data /app/models /app/config \
+    && chmod +x docker/entrypoint.sh
 
+ENTRYPOINT ["./docker/entrypoint.sh"]
 CMD ["python", "main.py"]

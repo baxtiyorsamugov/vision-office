@@ -13,7 +13,7 @@ Docker Compose runs Vision Office as independent services:
 
 The default image is CPU-only and headless. It does not open an OpenCV window; use the browser dashboard and logs instead. The native Windows installation remains the current GPU option. A GPU Docker profile is deliberately not enabled until it is validated against the exact NVIDIA driver and GPU on the target device.
 
-All Python dependencies, including the ByteTrack `lap` package, are baked into the image. A production container must not install Python packages while it is processing camera frames.
+All Python dependencies, including the ByteTrack `lap` package, are baked into the image. A production container must not install Python packages while it is processing camera frames. The container entrypoint initializes Ultralytics' nonessential temporary preferences before Python starts, so Windows mount permissions cannot affect the worker.
 
 ## Prerequisites
 

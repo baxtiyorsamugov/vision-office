@@ -32,6 +32,7 @@
 | 2026-09-04 | DONE | Windows status-file hotfix: a locked runtime JSON no longer terminates the camera process. | Regression test simulates `PermissionError`; 18 tests pass. |
 | 2026-09-04 | DONE | Added Docker Compose topology, CPU Docker image, migration service, healthchecks, headless camera mode, shared-SQLite WAL/busy timeout and Docker runbook. | Docker asset tests and Python test suite; live Docker Desktop UAT is recorded below. |
 | 2026-09-04 | DONE | Docker Desktop UAT completed: rebuilt CPU image, migrations exited successfully, API/UI/worker became healthy, one live RTSP camera ran at about 25 capture FPS, and a worker restart recovered the stream. Added `lap` to the immutable image and redacted RTSP credentials in logs. | Docker Compose build/start/restart, API health endpoint, live runtime status and full Python test suite (23 tests). |
+| 2026-09-04 | DONE | Hardened the Docker runtime environment: service-specific environment blocks now retain shared settings, and the container entrypoint creates the transient Ultralytics settings directory before Python starts. | Rebuilt image; verified all services healthy, worker received `YOLO_CONFIG_DIR`, no Ultralytics permissions warning, live camera connected and API health returned `ok`. |
 
 ## Containerized deployment
 

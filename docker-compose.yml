@@ -1,5 +1,11 @@
 name: vision-office
 
+x-common-environment: &common-environment
+  PYTHONUNBUFFERED: "1"
+  # Ultralytics only stores transient runtime preferences here. Keep them out
+  # of the Windows bind mount, whose permissions differ from Linux containers.
+  YOLO_CONFIG_DIR: /tmp/vision-office-yolo
+
 x-common: &common
   build:
     context: .
@@ -7,9 +13,7 @@ x-common: &common
   init: true
   restart: unless-stopped
   stop_grace_period: 45s
-  environment:
-    PYTHONUNBUFFERED: "1"
-    YOLO_CONFIG_DIR: /app/data/ultralytics
+  environment: *common-environment
   volumes:
     - ./config:/app/config:ro
     - ./data:/app/data
@@ -27,7 +31,7 @@ services:
       migrate:
         condition: service_completed_successfully
     environment:
-      PYTHONUNBUFFERED: "1"
+      <<: *common-environment
       VISION_OFFICE_HEADLESS: "true"
     command: ["python", "main.py"]
     healthcheck:
@@ -43,7 +47,7 @@ services:
       migrate:
         condition: service_completed_successfully
     environment:
-      PYTHONUNBUFFERED: "1"
+      <<: *common-environment
       VISION_OFFICE_API_KEY: ${VISION_OFFICE_API_KEY:-}
       VISION_OFFICE_CORS_ORIGINS: ${VISION_OFFICE_CORS_ORIGINS:-}
     command: ["python", "-m", "uvicorn", "api.server:app", "--host", "0.0.0.0", "--port", "8000"]
@@ -62,7 +66,7 @@ services:
       migrate:
         condition: service_completed_successfully
     environment:
-      PYTHONUNBUFFERED: "1"
+      <<: *common-environment
       VISION_OFFICE_MANAGED_RUNTIME: "true"
       VISION_OFFICE_API_PUBLIC_URL: ${VISION_OFFICE_API_PUBLIC_URL:-http://127.0.0.1:8000}
       STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"

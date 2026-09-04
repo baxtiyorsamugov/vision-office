@@ -16,6 +16,11 @@ class DockerAssetTests(unittest.TestCase):
         self.assertEqual(services["vision-worker"]["environment"]["VISION_OFFICE_HEADLESS"], "true")
         self.assertEqual(services["ui"]["environment"]["VISION_OFFICE_MANAGED_RUNTIME"], "true")
         self.assertEqual(services["migrate"]["restart"], "no")
+        for service_name in services:
+            self.assertEqual(
+                services[service_name]["environment"]["YOLO_CONFIG_DIR"],
+                "/tmp/vision-office-yolo",
+            )
 
     def test_docker_healthcheck_is_valid_python(self):
         py_compile.compile(str(PROJECT_ROOT / "docker" / "healthcheck.py"), doraise=True)
@@ -25,6 +30,7 @@ class DockerAssetTests(unittest.TestCase):
         requirements = (PROJECT_ROOT / "requirements-docker-cpu.txt").read_text(encoding="utf-8")
         self.assertIn("torch==2.5.1+cpu", dockerfile)
         self.assertIn("opencv-python-headless", requirements)
+        self.assertIn("ENTRYPOINT [\"./docker/entrypoint.sh\"]", dockerfile)
 
 
 if __name__ == "__main__":
