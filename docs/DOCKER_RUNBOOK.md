@@ -13,6 +13,8 @@ Docker Compose runs Vision Office as independent services:
 
 The default image is CPU-only and headless. It does not open an OpenCV window; use the browser dashboard and logs instead. The native Windows installation remains the current GPU option. A GPU Docker profile is deliberately not enabled until it is validated against the exact NVIDIA driver and GPU on the target device.
 
+All Python dependencies, including the ByteTrack `lap` package, are baked into the image. A production container must not install Python packages while it is processing camera frames.
+
 ## Prerequisites
 
 1. Install Docker Desktop with the **Linux containers** and WSL 2 backend enabled.
@@ -79,6 +81,7 @@ docker compose up -d
 ```
 
 `vision-worker` remains responsible for restarting an individual camera process. An unavailable RTSP camera does not stop its sibling camera, API or UI.
+RTSP passwords are read only from `config/settings.yaml` and are redacted from application logs.
 
 ## Health and Diagnostics
 

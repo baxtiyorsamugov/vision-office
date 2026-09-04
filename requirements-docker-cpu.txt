@@ -1,6 +1,8 @@
 # Linux CPU runtime used exclusively by Dockerfile.
 # The Windows installer keeps its own pinned requirements and must not be changed.
 ultralytics==8.4.110
+# ByteTrack dependency. Keep it in the image; never let Ultralytics install it at runtime.
+lap==0.5.13
 insightface==0.7.3
 opencv-python-headless==5.0.0.93
 onnxruntime==1.23.2

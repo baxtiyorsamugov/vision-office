@@ -13,6 +13,7 @@ from core.events import RecognitionEventStore
 import core.logging_setup as logging_setup
 from core.health import HealthChecker, HealthSettings
 from core import performance
+from core.video.streamer import safe_source_label
 from database.models import HealthIncident
 from database.migrations import run_migrations
 from main import headless_mode
@@ -155,6 +156,11 @@ class PlatformTests(unittest.TestCase):
                 os.environ.pop("VISION_OFFICE_HEADLESS", None)
             else:
                 os.environ["VISION_OFFICE_HEADLESS"] = previous
+
+    def test_camera_log_label_redacts_rtsp_credentials(self):
+        label = safe_source_label("rtsp://admin:secret-password@192.168.0.2:554/Streaming/Channels/101")
+        self.assertEqual(label, "rtsp://192.168.0.2:554/Streaming/Channels/101")
+        self.assertNotIn("secret-password", label)
 
 
 if __name__ == "__main__":

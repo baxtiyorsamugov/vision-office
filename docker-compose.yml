@@ -9,6 +9,7 @@ x-common: &common
   stop_grace_period: 45s
   environment:
     PYTHONUNBUFFERED: "1"
+    YOLO_CONFIG_DIR: /app/data/ultralytics
   volumes:
     - ./config:/app/config:ro
     - ./data:/app/data
@@ -64,6 +65,7 @@ services:
       PYTHONUNBUFFERED: "1"
       VISION_OFFICE_MANAGED_RUNTIME: "true"
       VISION_OFFICE_API_PUBLIC_URL: ${VISION_OFFICE_API_PUBLIC_URL:-http://127.0.0.1:8000}
+      STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
     command: ["python", "-m", "streamlit", "run", "ui/app.py", "--server.address", "0.0.0.0", "--server.port", "8501", "--server.headless", "true"]
     ports:
       - "127.0.0.1:8501:8501"

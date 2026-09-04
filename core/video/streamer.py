@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from urllib.parse import urlsplit
 
 import cv2
 
@@ -12,9 +13,22 @@ import cv2
 logger = logging.getLogger("vision_office.video")
 
 
+def safe_source_label(source) -> str:
+    """Describe a stream in logs without ever exposing RTSP credentials."""
+    value = str(source)
+    parsed = urlsplit(value)
+    if not parsed.scheme or not parsed.hostname:
+        return value
+    host = parsed.hostname
+    if parsed.port is not None:
+        host = f"{host}:{parsed.port}"
+    return f"{parsed.scheme}://{host}{parsed.path}"
+
+
 class VideoStream:
     def __init__(self, src, reconnect_max_seconds: float = 10.0):
         self.src = src
+        self.source_label = safe_source_label(src)
         self.is_file = not (str(src).lower().startswith(("rtsp://", "http://", "https://")) or str(src) == "0")
         self.reconnect_max_seconds = max(1.0, float(reconnect_max_seconds))
         self.lock = threading.Lock()
@@ -33,7 +47,7 @@ class VideoStream:
         self.thread = None
 
     def start(self):
-        self.thread = threading.Thread(target=self.update, name=f"camera-reader-{self.src}", daemon=True)
+        self.thread = threading.Thread(target=self.update, name=f"camera-reader-{self.source_label}", daemon=True)
         self.thread.start()
         return self
 
@@ -55,14 +69,14 @@ class VideoStream:
             if previous is not None:
                 previous.release()
             self._publish(frame)
-            logger.info("Camera connected source=%s", self.src)
+            logger.info("Camera connected source=%s", self.source_label)
             return True
         except Exception as error:
             with self.lock:
                 self.connected = False
                 self.last_error = str(error)
                 self.reconnect_attempts += 1
-            logger.warning("Camera connection failed source=%s error=%s", self.src, error)
+            logger.warning("Camera connection failed source=%s error=%s", self.source_label, error)
             return False
 
     def _disconnect(self, reason: str) -> None:
@@ -73,7 +87,7 @@ class VideoStream:
             self.reconnect_attempts += 1
         if stream is not None:
             stream.release()
-        logger.warning("Camera disconnected source=%s reason=%s", self.src, reason)
+        logger.warning("Camera disconnected source=%s reason=%s", self.source_label, reason)
 
     def update(self):
         retry_delay = 0.5
