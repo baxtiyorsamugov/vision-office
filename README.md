@@ -8,6 +8,7 @@ Vision Office is a local face-recognition and attendance platform for RTSP camer
 - [Implementation playbook](docs/IMPLEMENTATION_PLAYBOOK.md)
 - [ERP adapter and mock contract](docs/ERP_CONTRACT.md)
 - [Operations runbook](docs/OPERATIONS_RUNBOOK.md)
+- [Docker deployment runbook](docs/DOCKER_RUNBOOK.md)
 
 The roadmap is updated with each verified stage; do not treat a task as complete until its documented checks pass.
 
@@ -40,6 +41,20 @@ For the administration panel:
 ```
 
 Open http://127.0.0.1:8501 in a browser.
+
+## Docker launch
+
+Docker runs the camera/AI worker, API and dashboard as separate services. It preserves
+the local settings, SQLite database and models on the host computer:
+
+```powershell
+docker compose build --pull
+docker compose up -d
+docker compose ps
+```
+
+Open http://127.0.0.1:8501. The default container image is a stable CPU profile;
+the native Windows install remains the validated GPU path. See the [Docker runbook](docs/DOCKER_RUNBOOK.md) before first launch.
 
 ## Before first launch
 

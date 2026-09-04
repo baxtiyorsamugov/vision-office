@@ -102,6 +102,15 @@ for state_key in ("live_process", "demo_process", "api_process"):
     st.session_state.setdefault(state_key, None)
 
 
+def managed_runtime() -> bool:
+    """Docker runs worker/API separately, so the dashboard must not spawn duplicates."""
+    return os.getenv("VISION_OFFICE_MANAGED_RUNTIME", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def api_public_url() -> str:
+    return os.getenv("VISION_OFFICE_API_PUBLIC_URL", "http://127.0.0.1:8000").rstrip("/")
+
+
 @st.cache_resource
 def get_recognizer():
     from core.ai.recognizer import FaceRecognizer
@@ -194,7 +203,9 @@ def render_navigation():
 
 def render_control_center():
     render_header("Операционный центр", "Камеры, распознавание и регистрация присутствия")
-    live_running, demo_running = process_running("live_process"), process_running("demo_process")
+    runtime = read_runtime_status() or {}
+    live_running = bool(runtime.get("running")) if managed_runtime() else process_running("live_process")
+    demo_running = process_running("demo_process")
     recognition_status = "Активно" if live_running else "Ожидание"
     st.markdown(f'''<div class="status-strip"><div><div class="status-label">Распознавание</div><div class="status-value">{recognition_status}</div></div><div>{status_badge(live_running, "RTSP подключён", "RTSP остановлен")}</div><div>{status_badge(demo_running, "Демо запущено", "Демо выключено")}</div><div class="activity-meta">Обновлено<br>{datetime.now().strftime("%H:%M")}</div></div>''', unsafe_allow_html=True)
 
@@ -223,7 +234,9 @@ def render_control_center():
     with left:
         with st.container(border=True):
             st.markdown("<p class='panel-title'>Основная камера</p><p class='panel-note'>RTSP-поток с записью присутствия</p><br>", unsafe_allow_html=True)
-            if live_running:
+            if managed_runtime():
+                st.info("Контейнер vision-worker управляет камерой через Docker Compose.")
+            elif live_running:
                 st.success("Поток запущен")
                 if st.button("Остановить камеру", key="stop_live", type="secondary", use_container_width=True):
                     stop_process("live_process")
@@ -459,7 +472,7 @@ def render_edge_status(edge_settings):
 
 def render_developer_api():
     render_header("API для разработчиков", "Read-only интеграция с сотрудниками и событиями присутствия")
-    api_running = process_running("api_process")
+    api_running = managed_runtime() or process_running("api_process")
     st.markdown(
         f'''<div class="status-strip"><div><div class="status-label">Integration API</div><div class="status-value">{"Готов к запросам" if api_running else "Остановлен"}</div></div><div>{status_badge(api_running, "localhost:8000", "Локальный режим")}</div><div class="activity-meta">Доступ: только чтение<br>Версия: v1</div></div>''',
         unsafe_allow_html=True,
@@ -469,7 +482,10 @@ def render_developer_api():
     with actions:
         with st.container(border=True):
             st.markdown("<p class='panel-title'>Локальный сервер</p><p class='panel-note'>127.0.0.1:8000</p><br>", unsafe_allow_html=True)
-            if api_running:
+            if managed_runtime():
+                st.success("API запущен отдельным контейнером")
+                st.link_button("Открыть документацию", f"{api_public_url()}/docs", use_container_width=True)
+            elif api_running:
                 if st.button("Остановить API", key="stop_api", type="secondary", use_container_width=True):
                     stop_process("api_process")
                     st.rerun()

@@ -1,0 +1,75 @@
+name: vision-office
+
+x-common: &common
+  build:
+    context: .
+    dockerfile: Dockerfile
+  init: true
+  restart: unless-stopped
+  stop_grace_period: 45s
+  environment:
+    PYTHONUNBUFFERED: "1"
+  volumes:
+    - ./config:/app/config:ro
+    - ./data:/app/data
+    - ./models:/app/models:ro
+
+services:
+  migrate:
+    <<: *common
+    restart: "no"
+    command: ["python", "-m", "database.manager"]
+
+  vision-worker:
+    <<: *common
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      PYTHONUNBUFFERED: "1"
+      VISION_OFFICE_HEADLESS: "true"
+    command: ["python", "main.py"]
+    healthcheck:
+      test: ["CMD", "python", "docker/healthcheck.py", "worker"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+
+  api:
+    <<: *common
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      PYTHONUNBUFFERED: "1"
+      VISION_OFFICE_API_KEY: ${VISION_OFFICE_API_KEY:-}
+      VISION_OFFICE_CORS_ORIGINS: ${VISION_OFFICE_CORS_ORIGINS:-}
+    command: ["python", "-m", "uvicorn", "api.server:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "docker/healthcheck.py", "api"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  ui:
+    <<: *common
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      PYTHONUNBUFFERED: "1"
+      VISION_OFFICE_MANAGED_RUNTIME: "true"
+      VISION_OFFICE_API_PUBLIC_URL: ${VISION_OFFICE_API_PUBLIC_URL:-http://127.0.0.1:8000}
+    command: ["python", "-m", "streamlit", "run", "ui/app.py", "--server.address", "0.0.0.0", "--server.port", "8501", "--server.headless", "true"]
+    ports:
+      - "127.0.0.1:8501:8501"
+    healthcheck:
+      test: ["CMD", "python", "docker/healthcheck.py", "ui"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 45s

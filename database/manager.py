@@ -1,4 +1,5 @@
 from sqlalchemy import create_engine
+from sqlalchemy import event
 from database.models import Base
 import yaml
 import os
@@ -12,8 +13,26 @@ def _database_path() -> str:
 def get_engine():
     db_path = _database_path()
     # Создаем папку data, если её нет
-    os.makedirs(os.path.dirname(db_path), exist_ok=True)
-    return create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
+    parent = os.path.dirname(db_path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    engine = create_engine(
+        f"sqlite:///{db_path}",
+        connect_args={"check_same_thread": False, "timeout": 30},
+    )
+
+    @event.listens_for(engine, "connect")
+    def _configure_sqlite(connection, _connection_record):
+        # API, UI and recognition workers share one durable SQLite file in Docker.
+        # WAL plus a busy timeout avoids transient write-lock failures between them.
+        cursor = connection.cursor()
+        try:
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA busy_timeout=30000")
+        finally:
+            cursor.close()
+
+    return engine
 
 def init_db():
     engine = get_engine()

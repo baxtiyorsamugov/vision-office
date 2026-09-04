@@ -1,11 +1,13 @@
 import numpy as np
 import multiprocessing as mp
+import os
 import queue # Импортируем для обработки переполнения
 import cv2
 import time
 import threading
 import torch
 from collections import deque
+from pathlib import Path
 from ultralytics import YOLO
 
 ANALYZING_STATUS = "Анализ..."
@@ -21,6 +23,17 @@ MAX_FACES_PER_FRAME = 3
 MIN_FACE_SIZE_PX = 48
 MIN_TRACK_OBSERVATIONS = 2
 STABILIZING_STATUS = "Стабилизация..."
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+def detector_model_path() -> str:
+    """Prefer the persistent model directory when the service runs in Docker."""
+    configured = os.getenv("VISION_OFFICE_YOLO_MODEL", "yolov8n-face.pt").strip()
+    configured_path = Path(configured)
+    if configured_path.is_file():
+        return str(configured_path)
+    bundled = PROJECT_ROOT / "models" / configured_path.name
+    return str(bundled) if bundled.is_file() else configured
 
 
 def edge_delivery_worker(stop_event):
@@ -194,7 +207,7 @@ def face_recognition_worker(input_queue, shared_memory, face_timings, face_metri
 
 class AI_Engine:
     def __init__(self, detection_imgsz=960, detection_fps=DEFAULT_DETECTION_FPS, camera_id="reception_01", event_type="entry"):
-        self.model = YOLO("yolov8n-face.pt")
+        self.model = YOLO(detector_model_path())
         self.camera_id = camera_id
         self.event_type = event_type
         self.detection_imgsz = max(640, int(detection_imgsz))

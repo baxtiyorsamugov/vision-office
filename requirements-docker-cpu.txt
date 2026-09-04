@@ -1,0 +1,21 @@
+# Linux CPU runtime used exclusively by Dockerfile.
+# The Windows installer keeps its own pinned requirements and must not be changed.
+ultralytics==8.4.110
+insightface==0.7.3
+opencv-python-headless==5.0.0.93
+onnxruntime==1.23.2
+numpy==2.2.6
+pillow==12.3.0
+
+sqlalchemy==2.0.52
+pymysql==1.2.0
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+
+streamlit==1.62.0
+plotly==6.9.0
+pandas==2.3.3
+
+python-telegram-bot==22.8
+pyyaml==6.0.3
+reportlab==5.0.1

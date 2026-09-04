@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -14,6 +15,7 @@ from core.health import HealthChecker, HealthSettings
 from core import performance
 from database.models import HealthIncident
 from database.migrations import run_migrations
+from main import headless_mode
 
 
 class PlatformTests(unittest.TestCase):
@@ -140,6 +142,19 @@ class PlatformTests(unittest.TestCase):
         destination = Path(self.tempdir.name) / "runtime.json"
         with patch("core.performance.os.replace", side_effect=PermissionError("file locked")):
             self.assertFalse(performance._write_status_file(destination, {"running": True}))
+
+    def test_headless_mode_is_opt_in(self):
+        previous = os.environ.get("VISION_OFFICE_HEADLESS")
+        try:
+            os.environ["VISION_OFFICE_HEADLESS"] = "true"
+            self.assertTrue(headless_mode())
+            os.environ["VISION_OFFICE_HEADLESS"] = "0"
+            self.assertFalse(headless_mode())
+        finally:
+            if previous is None:
+                os.environ.pop("VISION_OFFICE_HEADLESS", None)
+            else:
+                os.environ["VISION_OFFICE_HEADLESS"] = previous
 
 
 if __name__ == "__main__":
