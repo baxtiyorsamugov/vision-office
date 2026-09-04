@@ -11,6 +11,7 @@ from core.edge.config import EdgeSettings
 from core.events import RecognitionEventStore
 import core.logging_setup as logging_setup
 from core.health import HealthChecker, HealthSettings
+from core import performance
 from database.models import HealthIncident
 from database.migrations import run_migrations
 
@@ -134,6 +135,11 @@ class PlatformTests(unittest.TestCase):
             statuses = checker._camera_statuses()
         self.assertEqual(set(statuses), {"camera:entry"})
         self.assertEqual(statuses["camera:entry"][0], "failed")
+
+    def test_status_file_lock_does_not_raise_or_stop_camera(self):
+        destination = Path(self.tempdir.name) / "runtime.json"
+        with patch("core.performance.os.replace", side_effect=PermissionError("file locked")):
+            self.assertFalse(performance._write_status_file(destination, {"running": True}))
 
 
 if __name__ == "__main__":
