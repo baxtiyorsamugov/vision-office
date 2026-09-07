@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, Integer, String, DateTime, Float, ForeignKey, JSON, Text
+from sqlalchemy import Boolean, Column, Integer, String, DateTime, Float, ForeignKey, JSON, Text, UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime
 
@@ -46,6 +46,21 @@ class RemotePerson(Base):
     embedding_status = Column(String(32), nullable=False, default="pending")
     embedding_error = Column(Text, nullable=True)
     updated_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+
+
+class RemotePersonReferencePhoto(Base):
+    """Locally approved extra photo/embedding for an ERP-managed person."""
+    __tablename__ = "remote_person_reference_photos"
+    __table_args__ = (UniqueConstraint("person_id", "image_checksum", name="uq_remote_person_reference_photo"),)
+
+    id = Column(String(36), primary_key=True)
+    person_id = Column(String(36), ForeignKey("remote_persons.id"), nullable=False, index=True)
+    source = Column(String(20), nullable=False, default="local")
+    photo_path = Column(String(1024), nullable=False)
+    image_checksum = Column(String(64), nullable=False)
+    embedding = Column(JSON, nullable=False)
+    active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
 
 
 class EdgeSyncState(Base):

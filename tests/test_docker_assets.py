@@ -12,11 +12,14 @@ class DockerAssetTests(unittest.TestCase):
     def test_compose_has_isolated_runtime_services(self):
         compose = yaml.safe_load((PROJECT_ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
         services = compose["services"]
-        self.assertEqual(set(services), {"migrate", "vision-worker", "api", "ui"})
+        self.assertEqual(set(services), {"postgres", "migrate", "vision-worker", "edge-sync", "api", "ui"})
+        self.assertEqual(services["postgres"]["image"], "postgres:16-alpine")
+        self.assertEqual(services["migrate"]["depends_on"]["postgres"]["condition"], "service_healthy")
         self.assertEqual(services["vision-worker"]["environment"]["VISION_OFFICE_HEADLESS"], "true")
+        self.assertEqual(services["vision-worker"]["environment"]["VISION_OFFICE_EXTERNAL_EDGE_SYNC"], "true")
         self.assertEqual(services["ui"]["environment"]["VISION_OFFICE_MANAGED_RUNTIME"], "true")
         self.assertEqual(services["migrate"]["restart"], "no")
-        for service_name in services:
+        for service_name in {"migrate", "vision-worker", "edge-sync", "api", "ui"}:
             self.assertEqual(
                 services[service_name]["environment"]["YOLO_CONFIG_DIR"],
                 "/tmp/vision-office-yolo",

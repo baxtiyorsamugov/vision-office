@@ -5,7 +5,7 @@ import signal
 import subprocess
 import sys
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import cv2
@@ -22,7 +22,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from database.manager import get_engine
 from database.migrations import run_migrations
-from database.models import AccessLogOutbox, Attendance, Base, EdgeSyncState, Employee, HealthIncident, RecognitionEvent, RemotePerson
+from database.models import AccessLogOutbox, Attendance, Base, EdgeSyncState, Employee, HealthIncident, RecognitionEvent, RemotePerson, RemotePersonReferencePhoto
 from core.edge.config import load_edge_settings
 from core.performance import read_runtime_status
 
@@ -170,6 +170,11 @@ def display_name(name):
     return name[:-4] if name.lower().endswith(".jpg") else name
 
 
+def day_bounds(selected_date: date) -> tuple[datetime, datetime]:
+    start = datetime.combine(selected_date, datetime.min.time())
+    return start, start + timedelta(days=1)
+
+
 def status_badge(running, active_label, idle_label):
     return f'<span class="badge"><span class="dot {"dot-online" if running else "dot-idle"}"></span>{active_label if running else idle_label}</span>'
 
@@ -212,9 +217,13 @@ def render_control_center():
     session = Session()
     try:
         employee_count = session.query(Employee).count()
-        today = date.today().isoformat()
-        today_count = session.query(Attendance.employee_id).filter(func.date(Attendance.timestamp) == today).distinct().count()
-        event_count = session.query(RecognitionEvent).filter(func.date(RecognitionEvent.created_at) == today).count()
+        day_start, day_end = day_bounds(date.today())
+        today_count = session.query(Attendance.employee_id).filter(
+            Attendance.timestamp >= day_start, Attendance.timestamp < day_end,
+        ).distinct().count()
+        event_count = session.query(RecognitionEvent).filter(
+            RecognitionEvent.created_at >= day_start, RecognitionEvent.created_at < day_end,
+        ).count()
         active_incidents = session.query(HealthIncident).filter(HealthIncident.status == "open").count()
     finally:
         session.close()
@@ -307,9 +316,12 @@ def render_performance_panel():
 
 
 def load_attendance(selected_date):
+    day_start, day_end = day_bounds(selected_date)
     session = Session()
     try:
-        rows = session.query(Attendance.timestamp, Attendance.event_type, Employee.full_name, Employee.role).join(Employee, Attendance.employee_id == Employee.id).filter(func.date(Attendance.timestamp) == selected_date.isoformat()).order_by(Attendance.timestamp.asc()).all()
+        rows = session.query(Attendance.timestamp, Attendance.event_type, Employee.full_name, Employee.role).join(Employee, Attendance.employee_id == Employee.id).filter(
+            Attendance.timestamp >= day_start, Attendance.timestamp < day_end,
+        ).order_by(Attendance.timestamp.asc()).all()
     finally:
         session.close()
     return pd.DataFrame([{"ФИО": row.full_name, "Роль": row.role or "Не указана", "Дата и время": row.timestamp, "Событие": row.event_type or "check_in"} for row in rows])
@@ -441,7 +453,7 @@ def render_registration():
 
 
 def render_edge_status(edge_settings):
-    render_header("Синхронизация людей", "Рабочий каталог людей управляется на backend")
+    render_header("Синхронизация людей", "ERP обновляет основной каталог каждый час; локальные фото расширяют только распознавание")
     session = Session()
     try:
         active_people = session.query(RemotePerson).filter(RemotePerson.active.is_(True)).count()
@@ -451,23 +463,77 @@ def render_edge_status(edge_settings):
         queued = session.query(AccessLogOutbox).filter(AccessLogOutbox.status.in_(["pending", "retry"])).count()
         failed = session.query(AccessLogOutbox).filter(AccessLogOutbox.status == "failed").count()
         sync_state = session.get(EdgeSyncState, 1)
+        local_photo_count = session.query(RemotePersonReferencePhoto).filter(RemotePersonReferencePhoto.active.is_(True)).count()
+        people = session.query(RemotePerson).filter(RemotePerson.active.is_(True)).order_by(RemotePerson.fio.asc(), RemotePerson.id.asc()).all()
+        photo_counts = dict(session.query(
+            RemotePersonReferencePhoto.person_id,
+            func.count(RemotePersonReferencePhoto.id),
+        ).filter(RemotePersonReferencePhoto.active.is_(True)).group_by(RemotePersonReferencePhoto.person_id).all())
     finally:
         session.close()
 
     if not edge_settings.configured:
         st.error("Интеграция включена, но не заполнены base_url, device_api_key или device_id в локальном settings.yaml.")
         return
-    metrics = st.columns(4)
+    metrics = st.columns(5)
     metrics[0].metric("Активные люди", active_people)
     metrics[1].metric("С embeddings", embeddings)
-    metrics[2].metric("В очереди", queued)
-    metrics[3].metric("Требуют внимания", failed)
+    metrics[2].metric("Доп. фото", local_photo_count)
+    metrics[3].metric("В очереди", queued)
+    metrics[4].metric("Требуют внимания", failed)
     if sync_state and sync_state.last_error:
         st.warning(f"Последняя ошибка синхронизации: {sync_state.last_error}")
     elif sync_state and sync_state.last_incremental_sync_at:
         st.success(f"Последняя синхронизация: {sync_state.last_incremental_sync_at}")
     else:
-        st.info("Синхронизация начнётся при запуске камеры. Локальное добавление людей в рабочем режиме отключено.")
+        st.info("Синхронизация начнётся при запуске edge-sync. Создание новых людей локально отключено: основной каталог принадлежит ERP.")
+
+    st.markdown("<hr class='section-rule'>", unsafe_allow_html=True)
+    st.subheader("Дополнительные фото для распознавания")
+    st.caption(
+        f"Фото сохраняются только на этом устройстве, не отправляются в ERP и добавляют отдельный embedding. Лимит: {edge_settings.local_reference_photo_limit} на человека."
+    )
+    if not people:
+        st.info("Сначала дождитесь первой синхронизации с ERP: список людей пока пуст.")
+        return
+
+    options = {
+        f"{display_name(person.fio or 'Без имени')} · {person.id[:8]}": person.id
+        for person in people
+    }
+    with st.form("edge_reference_photo_form", clear_on_submit=True):
+        selected_label = st.selectbox("Сотрудник из ERP", list(options))
+        uploaded_photo = st.file_uploader("Дополнительная фотография", type=["jpg", "jpeg", "png"])
+        submitted = st.form_submit_button("Добавить фото", use_container_width=True)
+    if submitted:
+        if uploaded_photo is None:
+            st.warning("Выберите фотографию с хорошо видимым лицом.")
+        else:
+            from core.edge.service import EdgeService
+
+            try:
+                with st.spinner("Проверяем лицо и создаём локальный биометрический шаблон"):
+                    record = EdgeService(edge_settings).add_local_reference_photo(
+                        options[selected_label], uploaded_photo.getvalue()
+                    )
+                st.success(f"Фото добавлено. Локальный шаблон {record.id[:8]} начнёт использоваться камерой в течение нескольких секунд.")
+                st.rerun()
+            except ValueError as error:
+                st.error(str(error))
+            except Exception:
+                st.error("Не удалось добавить фото. Проверьте логи и повторите попытку.")
+
+    enriched = [
+        {
+            "Сотрудник": display_name(person.fio or "Без имени"),
+            "ERP ID": person.id[:8],
+            "Локальных фото": photo_counts.get(person.id, 0),
+        }
+        for person in people
+        if photo_counts.get(person.id, 0)
+    ]
+    if enriched:
+        st.dataframe(pd.DataFrame(enriched), use_container_width=True, hide_index=True)
 
 
 def render_developer_api():

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import math
 import logging
 import uuid
@@ -14,10 +15,11 @@ from zoneinfo import ZoneInfo
 
 import numpy as np
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.exc import IntegrityError
 
 from core.edge.config import EdgeSettings
 from database.manager import get_engine
-from database.models import AccessLogOutbox, EdgeSyncState, RemotePerson, RecognitionEvent
+from database.models import AccessLogOutbox, EdgeSyncState, RemotePerson, RemotePersonReferencePhoto, RecognitionEvent
 
 
 PERSON_TYPES = {"employee", "teacher", "student"}
@@ -33,7 +35,8 @@ class EdgeService:
     def __init__(self, settings: EdgeSettings, engine=None):
         self.settings = settings
         self.engine = engine or get_engine()
-        self.Session = sessionmaker(bind=self.engine)
+        # Upload UI needs the created reference-photo identifier after commit.
+        self.Session = sessionmaker(bind=self.engine, expire_on_commit=False)
         from database.migrations import run_migrations
 
         run_migrations(self.engine)
@@ -49,8 +52,14 @@ class EdgeService:
 
     @staticmethod
     def _utcnow() -> datetime:
-        # SQLite does not preserve timezone metadata. Store scheduler values as naive UTC.
-        return datetime.utcnow()
+        return datetime.now(timezone.utc)
+
+    @staticmethod
+    def _as_utc(value: datetime) -> datetime:
+        """Accept legacy SQLite UTC values and PostgreSQL timezone-aware values."""
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
 
     def maintenance(self) -> None:
         """Run a due synchronization and one delivery pass without raising to video code."""
@@ -66,8 +75,8 @@ class EdgeService:
         try:
             state = self._state(session)
             now = self._utcnow()
-            full_due = state.last_full_sync_at is None or now - state.last_full_sync_at >= timedelta(seconds=self.settings.full_sync_interval_seconds)
-            incremental_due = state.last_incremental_sync_at is None or now - state.last_incremental_sync_at >= timedelta(seconds=self.settings.sync_interval_seconds)
+            full_due = state.last_full_sync_at is None or now - self._as_utc(state.last_full_sync_at) >= timedelta(seconds=self.settings.full_sync_interval_seconds)
+            incremental_due = state.last_incremental_sync_at is None or now - self._as_utc(state.last_incremental_sync_at) >= timedelta(seconds=self.settings.sync_interval_seconds)
             if not full_due and not incremental_due:
                 return False
             since = None if full_due else state.last_incremental_sync_at
@@ -105,7 +114,7 @@ class EdgeService:
         while True:
             query: dict[str, str | int] = {"limit": self.settings.page_size, "offset": offset}
             if updated_since:
-                query["updated_since"] = updated_since.replace(tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
+                query["updated_since"] = self._as_utc(updated_since).isoformat().replace("+00:00", "Z")
             payload = self._request_json("GET", "/api/v1/learning-centers/persons/sync", query=query)
             if not isinstance(payload, list):
                 raise EdgeRequestError("Sync response must be a JSON list")
@@ -198,6 +207,91 @@ class EdgeService:
             raise ValueError("Could not persist reference photo")
         return image, str(path.relative_to(PROJECT_ROOT)).replace("\\", "/")
 
+    def _local_reference_photo_path(self, person_id: str, checksum: str, record_id: str) -> Path:
+        person_key = hashlib.sha256(person_id.encode("utf-8")).hexdigest()[:16]
+        target = PROJECT_ROOT / "data" / "persons" / "local" / person_key
+        target.mkdir(parents=True, exist_ok=True)
+        return target / f"{checksum[:16]}-{record_id[:8]}.jpg"
+
+    def add_local_reference_photo(self, person_id: str, raw_photo: bytes) -> RemotePersonReferencePhoto:
+        """Persist one operator-approved reference photo without changing ERP data.
+
+        Every accepted image adds a separate normalized vector to matching. The
+        server-owned main photo and embedding remain untouched, so the next ERP
+        sync cannot erase local enrichment.
+        """
+        if not self.settings.configured:
+            raise ValueError("ERP integration must be configured before adding a local reference photo")
+        if not raw_photo or len(raw_photo) > 10 * 1024 * 1024:
+            raise ValueError("Reference photo must be a non-empty image no larger than 10 MB")
+        checksum = hashlib.sha256(raw_photo).hexdigest()
+
+        session = self.Session()
+        try:
+            person = session.get(RemotePerson, person_id)
+            if person is None:
+                raise ValueError("Person is not present in the local ERP cache")
+            if not person.active:
+                raise ValueError("Cannot add a reference photo for an inactive person")
+            duplicate = session.query(RemotePersonReferencePhoto).filter(
+                RemotePersonReferencePhoto.person_id == person_id,
+                RemotePersonReferencePhoto.image_checksum == checksum,
+            ).first()
+            if duplicate is not None:
+                raise ValueError("This reference photo has already been added")
+            existing_count = session.query(RemotePersonReferencePhoto).filter(
+                RemotePersonReferencePhoto.person_id == person_id,
+                RemotePersonReferencePhoto.active.is_(True),
+            ).count()
+            if existing_count >= self.settings.local_reference_photo_limit:
+                raise ValueError(f"Reference photo limit reached ({self.settings.local_reference_photo_limit})")
+        finally:
+            session.close()
+
+        import cv2
+
+        image = cv2.imdecode(np.frombuffer(raw_photo, dtype=np.uint8), cv2.IMREAD_COLOR)
+        if image is None or image.size == 0:
+            raise ValueError("Reference photo is not a decodable image")
+        if self._recognizer is None:
+            from core.ai.recognizer import FaceRecognizer
+
+            self._recognizer = FaceRecognizer()
+        embedding = self._recognizer.get_embedding(image)
+        if embedding is None or not self._valid_embedding(np.asarray(embedding).tolist()):
+            raise ValueError("No usable face detected in the reference photo")
+
+        record_id = str(uuid.uuid4())
+        path = self._local_reference_photo_path(person_id, checksum, record_id)
+        if not cv2.imwrite(str(path), image):
+            raise ValueError("Could not persist the reference photo")
+
+        session = self.Session()
+        try:
+            record = RemotePersonReferencePhoto(
+                id=record_id,
+                person_id=person_id,
+                source="local",
+                photo_path=str(path.relative_to(PROJECT_ROOT)).replace("\\", "/"),
+                image_checksum=checksum,
+                embedding=self._normalize_embedding(embedding).tolist(),
+                active=True,
+                created_at=self._utcnow(),
+            )
+            session.add(record)
+            session.commit()
+            return record
+        except (IntegrityError, ValueError):
+            session.rollback()
+            path.unlink(missing_ok=True)
+            raise
+        except Exception:
+            session.rollback()
+            path.unlink(missing_ok=True)
+            raise
+        finally:
+            session.close()
+
     def cache_embeddings(self) -> tuple[list[dict[str, str]], np.ndarray | None]:
         session = self.Session()
         try:
@@ -206,6 +300,7 @@ class EdgeService:
             ).all()
             identities: list[dict[str, str]] = []
             vectors: list[np.ndarray] = []
+            people_by_id = {person.id: person for person in people}
             for person in people:
                 if not self._valid_embedding(person.embedding):
                     continue
@@ -219,6 +314,26 @@ class EdgeService:
                     "name": person.fio or f"{person.person_type} {person.id[:8]}",
                 })
                 vectors.append(vector / norm)
+            if people_by_id:
+                extra_photos = session.query(RemotePersonReferencePhoto).filter(
+                    RemotePersonReferencePhoto.person_id.in_(people_by_id),
+                    RemotePersonReferencePhoto.active.is_(True),
+                    RemotePersonReferencePhoto.embedding.is_not(None),
+                ).all()
+                for photo in extra_photos:
+                    if not self._valid_embedding(photo.embedding):
+                        continue
+                    vector = np.asarray(photo.embedding, dtype=np.float32)
+                    norm = np.linalg.norm(vector)
+                    if norm == 0:
+                        continue
+                    person = people_by_id[photo.person_id]
+                    identities.append({
+                        "person_id": person.id,
+                        "person_type": person.person_type,
+                        "name": person.fio or f"{person.person_type} {person.id[:8]}",
+                    })
+                    vectors.append(vector / norm)
             return identities, np.vstack(vectors) if vectors else None
         finally:
             session.close()

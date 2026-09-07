@@ -2,13 +2,14 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 from sqlalchemy import create_engine
 
 from core.edge.config import EdgeSettings
 from core.edge.service import EdgeRequestError, EdgeService
-from database.models import AccessLogOutbox, RecognitionEvent, RemotePerson
+from database.models import AccessLogOutbox, RecognitionEvent, RemotePerson, RemotePersonReferencePhoto
 
 
 class EdgeServiceTests(unittest.TestCase):
@@ -157,6 +158,44 @@ class EdgeServiceTests(unittest.TestCase):
             self.assertAlmostEqual(float(np.linalg.norm(np.asarray(person.embedding))), 1.0, places=5)
         finally:
             session.close()
+
+    def test_local_reference_photo_adds_an_extra_matching_embedding(self):
+        class FakeRecognizer:
+            @staticmethod
+            def get_embedding(_image):
+                return np.ones(512, dtype=np.float32)
+
+        person_id = "0f0d2f4-6a2e-4f3f-a42a-990063865000"
+        session = self.service.Session()
+        try:
+            self.service._upsert_person(session, {
+                "id": person_id,
+                "person_type": "employee",
+                "fio": "Enriched Person",
+                "embedding": [0.1] * 512,
+            })
+            session.commit()
+        finally:
+            session.close()
+
+        import cv2
+
+        ok, encoded = cv2.imencode(".jpg", np.zeros((112, 112, 3), dtype=np.uint8))
+        self.assertTrue(ok)
+        self.service._recognizer = FakeRecognizer()
+        self.service._local_reference_photo_path = lambda _person, _checksum, record_id: Path(self.tempdir.name) / f"{record_id}.jpg"
+        with patch("core.edge.service.PROJECT_ROOT", Path(self.tempdir.name)):
+            record = self.service.add_local_reference_photo(person_id, encoded.tobytes())
+
+        session = self.service.Session()
+        try:
+            self.assertEqual(session.query(RemotePersonReferencePhoto).count(), 1)
+            self.assertEqual(session.get(RemotePersonReferencePhoto, record.id).person_id, person_id)
+        finally:
+            session.close()
+        identities, embeddings = self.service.cache_embeddings()
+        self.assertEqual([item["person_id"] for item in identities], [person_id, person_id])
+        self.assertEqual(embeddings.shape, (2, 512))
 
     def test_network_failure_is_retried_then_sent(self):
         identity = {"person_id": "d0d0d2f4-6a2e-4f3f-a42a-990063865000", "person_type": "employee", "name": "Test"}

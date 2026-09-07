@@ -9,6 +9,7 @@ Vision Office is a local face-recognition and attendance platform for RTSP camer
 - [ERP adapter and mock contract](docs/ERP_CONTRACT.md)
 - [Operations runbook](docs/OPERATIONS_RUNBOOK.md)
 - [Docker deployment runbook](docs/DOCKER_RUNBOOK.md)
+- [Local PostgreSQL, hourly ERP sync and reference-photo runbook](docs/POSTGRESQL_RUNBOOK.md)
 
 The roadmap is updated with each verified stage; do not treat a task as complete until its documented checks pass.
 
@@ -44,8 +45,7 @@ Open http://127.0.0.1:8501 in a browser.
 
 ## Docker launch
 
-Docker runs the camera/AI worker, API and dashboard as separate services. It preserves
-the local settings, SQLite database and models on the host computer:
+Docker runs PostgreSQL, the shared ERP synchronizer, camera/AI worker, API and dashboard as separate services. It preserves local settings, event photos and models on the host computer; PostgreSQL uses its own durable Docker volume:
 
 ```powershell
 docker compose build --pull

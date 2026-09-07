@@ -7,6 +7,7 @@ opencv-python-headless==5.0.0.93
 pillow==12.3.0
 
 sqlalchemy==2.0.52
+psycopg[binary]==3.2.3
 pymysql==1.2.0
 fastapi==0.141.1
 uvicorn[standard]==0.52.4

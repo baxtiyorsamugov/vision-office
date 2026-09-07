@@ -38,19 +38,9 @@ def detector_model_path() -> str:
 
 def edge_delivery_worker(stop_event):
     """Network sync/outbox process. It must never delay FaceID inference."""
-    from core.edge.config import load_edge_settings
-    from core.edge.service import EdgeService
+    from core.edge.sync_worker import run_sync_loop
 
-    settings = load_edge_settings()
-    if not settings.configured:
-        return
-    service = EdgeService(settings)
-    while not stop_event.is_set():
-        try:
-            service.maintenance()
-        except Exception as error:
-            print(f"[Edge] Maintenance error: {error}")
-        stop_event.wait(1)
+    run_sync_loop(stop_event)
 
 def _load_known_faces(Session, edge_service=None, remote_mode=False):
     if edge_service is not None:
@@ -241,8 +231,11 @@ class AI_Engine:
         self.face_timings = self.manager.list()
         self.face_metrics = self.manager.dict({"count": 0, "last_ms": None, "dropped": 0})
         self.edge_stop_event = mp.Event()
-        self.edge_worker = mp.Process(target=edge_delivery_worker, args=(self.edge_stop_event,), daemon=True)
-        self.edge_worker.start()
+        self.edge_worker = None
+        external_edge_sync = os.getenv("VISION_OFFICE_EXTERNAL_EDGE_SYNC", "").strip().lower() in {"1", "true", "yes", "on"}
+        if not external_edge_sync:
+            self.edge_worker = mp.Process(target=edge_delivery_worker, args=(self.edge_stop_event,), daemon=True)
+            self.edge_worker.start()
 
         # One long-lived CUDA thread is essential. Creating a thread per frame makes
         # CUDA initialize a new context every time, which stalls detection for seconds.
@@ -428,6 +421,7 @@ class AI_Engine:
             self.worker.join(timeout=1)
         self.manager.shutdown()
         self.edge_stop_event.set()
-        self.edge_worker.join(timeout=2)
-        if self.edge_worker.is_alive():
-            self.edge_worker.terminate()
+        if self.edge_worker is not None:
+            self.edge_worker.join(timeout=2)
+            if self.edge_worker.is_alive():
+                self.edge_worker.terminate()

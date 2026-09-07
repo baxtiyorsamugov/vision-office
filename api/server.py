@@ -4,7 +4,7 @@ import hmac
 import json
 import os
 from pathlib import Path
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from typing import Generator
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
@@ -123,6 +123,11 @@ def get_session() -> Generator[Session, None, None]:
         session.close()
 
 
+def day_bounds(selected_date: date) -> tuple[datetime, datetime]:
+    start = datetime.combine(selected_date, time.min)
+    return start, start + timedelta(days=1)
+
+
 def require_api_key(x_api_key: str | None = Header(default=None)) -> None:
     if API_KEY and not (x_api_key and hmac.compare_digest(x_api_key, API_KEY)):
         raise HTTPException(
@@ -180,7 +185,8 @@ def list_attendance(
 ) -> PaginatedAttendance:
     query = session.query(Attendance, Employee).join(Employee, Attendance.employee_id == Employee.id)
     if selected_date:
-        query = query.filter(func.date(Attendance.timestamp) == selected_date.isoformat())
+        day_start, day_end = day_bounds(selected_date)
+        query = query.filter(Attendance.timestamp >= day_start, Attendance.timestamp < day_end)
     if employee_id:
         query = query.filter(Attendance.employee_id == employee_id)
 
@@ -210,7 +216,10 @@ def attendance_summary(
     session: Session = Depends(get_session),
     _: None = Depends(require_api_key),
 ) -> AttendanceSummary:
-    events = session.query(Attendance).filter(func.date(Attendance.timestamp) == selected_date.isoformat()).all()
+    day_start, day_end = day_bounds(selected_date)
+    events = session.query(Attendance).filter(
+        Attendance.timestamp >= day_start, Attendance.timestamp < day_end,
+    ).all()
     work_start = datetime.combine(selected_date, time(hour=9))
     return AttendanceSummary(
         date=selected_date,

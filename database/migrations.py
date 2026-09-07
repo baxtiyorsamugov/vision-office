@@ -1,4 +1,4 @@
-"""Small additive SQLite migration runner for installed Vision Office devices."""
+"""Small additive migration runner for installed Vision Office devices."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ MIGRATIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
 def _ensure_migration_table(connection) -> None:
     connection.execute(text(
         "CREATE TABLE IF NOT EXISTS schema_migrations ("
-        "version VARCHAR(64) PRIMARY KEY, applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+        "version VARCHAR(64) PRIMARY KEY, applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)"
     ))
 
 

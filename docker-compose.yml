@@ -2,6 +2,8 @@ name: vision-office
 
 x-common-environment: &common-environment
   PYTHONUNBUFFERED: "1"
+  VISION_OFFICE_EXTERNAL_EDGE_SYNC: "true"
+  VISION_OFFICE_DATABASE_URL: postgresql+psycopg://${VISION_OFFICE_POSTGRES_USER:-vision_office}:${VISION_OFFICE_POSTGRES_PASSWORD:-vision-office-local-only}@postgres:5432/${VISION_OFFICE_POSTGRES_DB:-vision_office}
   # Ultralytics only stores transient runtime preferences here. Keep them out
   # of the Windows bind mount, whose permissions differ from Linux containers.
   YOLO_CONFIG_DIR: /tmp/vision-office-yolo
@@ -20,9 +22,28 @@ x-common: &common
     - ./models:/app/models:ro
 
 services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${VISION_OFFICE_POSTGRES_DB:-vision_office}
+      POSTGRES_USER: ${VISION_OFFICE_POSTGRES_USER:-vision_office}
+      POSTGRES_PASSWORD: ${VISION_OFFICE_POSTGRES_PASSWORD:-vision-office-local-only}
+    volumes:
+      - vision-office-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
   migrate:
     <<: *common
     restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
     command: ["python", "-m", "database.manager"]
 
   vision-worker:
@@ -40,6 +61,13 @@ services:
       timeout: 5s
       retries: 3
       start_period: 120s
+
+  edge-sync:
+    <<: *common
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    command: ["python", "-m", "core.edge.sync_worker"]
 
   api:
     <<: *common
@@ -79,3 +107,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 45s
+
+volumes:
+  vision-office-postgres:

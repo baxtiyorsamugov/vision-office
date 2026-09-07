@@ -6,8 +6,10 @@ Docker Compose runs Vision Office as independent services:
 
 | Service | Responsibility | Persistent paths |
 | --- | --- | --- |
-| `migrate` | Applies additive SQLite migrations, then exits successfully. | `data/` |
-| `vision-worker` | RTSP capture, AI recognition, ERP outbox and Health Checker. | `config/`, `data/`, `models/` |
+| `postgres` | Local PostgreSQL database for ERP cache, events, outbox and operator-added reference photos. | `vision-office-postgres` Docker volume |
+| `migrate` | Applies additive database schema migrations, then exits successfully. | PostgreSQL |
+| `edge-sync` | One shared ERP people synchronizer and event-outbox delivery worker. | PostgreSQL, `config/`, `data/`, `models/` |
+| `vision-worker` | RTSP capture and AI recognition from the local PostgreSQL cache. | `config/`, `data/`, `models/` |
 | `api` | Read-only FastAPI integration API. | `config/`, `data/` |
 | `ui` | Streamlit operations dashboard. It does not start duplicate workers in Docker. | `config/`, `data/`, `models/` |
 
@@ -32,7 +34,15 @@ Copy-Item .\config\settings.example.yaml .\config\settings.yaml
 ```
 
 4. Put real RTSP/ERP/Telegram values only in `config/settings.yaml`. This file is excluded from Git and from the Docker image.
-5. Copy the already approved model files from the working device into these exact locations:
+5. Create a device-local PostgreSQL password file before starting Docker:
+
+```powershell
+Copy-Item .env.example .env
+notepad .env
+```
+
+Change `VISION_OFFICE_POSTGRES_PASSWORD` to a long local password. Keep `.env` out of Git.
+6. Copy the already approved model files from the working device into these exact locations:
 
 ```text
 models/yolov8n-face.pt
@@ -53,8 +63,8 @@ docker compose ps
 
 Expected result:
 
-- `migrate` has status `Exited (0)`; it is a one-time schema service.
-- `vision-worker`, `api` and `ui` are `Up` and become `healthy` after startup.
+- `postgres` becomes `healthy`; `migrate` has status `Exited (0)`.
+- `vision-worker`, `edge-sync`, `api` and `ui` are `Up`; API, UI and worker become `healthy` after startup.
 - Dashboard: http://127.0.0.1:8501
 - API documentation: http://127.0.0.1:8000/docs
 
@@ -80,7 +90,7 @@ docker compose down
 docker compose up -d
 ```
 
-`vision-worker` remains responsible for restarting an individual camera process. An unavailable RTSP camera does not stop its sibling camera, API or UI.
+`edge-sync` is the only process that calls ERP. It performs the initial sync at startup and hourly incremental syncs afterwards; `vision-worker` remains responsible for restarting an individual camera process. An unavailable RTSP camera does not stop its sibling camera, ERP sync, API or UI.
 RTSP passwords are read only from `config/settings.yaml` and are redacted from application logs.
 
 ## Health and Diagnostics
@@ -100,10 +110,10 @@ For an RTSP issue, test the NVR stream before changing AI parameters. H.264 deco
 
 ## Backup and Safe Update
 
-`config/`, `data/` and `models/` are host-mounted and survive rebuilds. Never run `docker compose down -v` for this project: it is unnecessary and can remove future named volumes.
+`config/`, `data/` and `models/` are host-mounted and survive rebuilds. PostgreSQL uses the persistent `vision-office-postgres` Docker volume. Never run `docker compose down -v` for this project: it deletes that volume and the local database.
 
 ```powershell
-# Stop writes before copying SQLite and event images.
+# Stop application writes before copying event images or changing PostgreSQL data.
 docker compose stop
 
 # Create a dated local backup.
@@ -118,7 +128,7 @@ docker compose up -d
 docker compose ps
 ```
 
-Keep one validated backup until the dashboard, one camera and API health are verified after the update. Do not copy another device's `settings.yaml`, `office.db`, model weights or Telegram/ERP credentials unless that migration is intentional.
+Use [the PostgreSQL runbook](POSTGRESQL_RUNBOOK.md) for database dump/restore and the one-time SQLite migration. Keep one validated backup until the dashboard, one camera and API health are verified after the update. Do not copy another device's `settings.yaml`, PostgreSQL data, model weights or Telegram/ERP credentials unless that migration is intentional.
 
 ## External API Settings
 

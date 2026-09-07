@@ -36,6 +36,8 @@ Response is a JSON array. Each item must contain:
 
 `embedding` is optional but, when supplied, must contain exactly 512 finite values. `person_photo_url` is optional when embedding is valid. If the embedding is absent or invalid, Edge downloads the photo, validates it, creates a 512-dimensional embedding and caches the result locally. Invalid photos record an explicit local status and error reason.
 
+The Edge device synchronizes this catalog hourly by default. An operator may add approved local reference photos to a synchronized person. Those photos and embeddings are never written back to ERP and remain attached to the person after future ERP updates; each valid local photo contributes an additional local matching vector.
+
 ## Recognition event delivery
 
 `POST /api/v1/learning-centers/access-logs`

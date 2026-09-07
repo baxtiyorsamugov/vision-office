@@ -15,6 +15,7 @@ from core.health import HealthChecker, HealthSettings
 from core import performance
 from core.video.streamer import safe_source_label
 from database.models import HealthIncident
+from database.manager import database_url
 from database.migrations import run_migrations
 from main import headless_mode
 
@@ -32,7 +33,7 @@ class PlatformTests(unittest.TestCase):
     def test_migrations_create_event_and_health_tables(self):
         run_migrations(self.engine)
         tables = set(inspect(self.engine).get_table_names())
-        self.assertTrue({"recognition_events", "health_incidents", "notification_outbox", "schema_migrations"}.issubset(tables))
+        self.assertTrue({"recognition_events", "health_incidents", "notification_outbox", "remote_person_reference_photos", "schema_migrations"}.issubset(tables))
 
     def test_migrations_upgrade_legacy_remote_person_table(self):
         with self.engine.begin() as connection:
@@ -75,6 +76,21 @@ class PlatformTests(unittest.TestCase):
             device_id="device-1",
         )
         self.assertIn("device_api_key", settings.validation_error())
+
+    def test_edge_defaults_to_hourly_people_sync(self):
+        self.assertEqual(EdgeSettings().sync_interval_seconds, 3600)
+
+    def test_database_url_uses_postgresql_config_when_requested(self):
+        settings = Path(self.tempdir.name) / "settings.yaml"
+        settings.write_text(
+            "database:\n  type: postgresql\n  host: postgres\n  port: 5432\n  name: vision\n  user: edge\n  password: local password\n",
+            encoding="utf-8",
+        )
+        with patch.dict(os.environ, {"VISION_OFFICE_DATABASE_URL": ""}, clear=False):
+            self.assertEqual(
+                database_url(settings),
+                "postgresql+psycopg://edge:local+password@postgres:5432/vision",
+            )
 
     def test_rotating_log_file_is_created(self):
         original_dir = logging_setup.LOG_DIR

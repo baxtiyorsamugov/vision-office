@@ -21,6 +21,8 @@ ai:
   face_detection_fps: 20
 
 database:
+  # Docker Compose overrides this with its local PostgreSQL service.
+  # Keep SQLite only for an existing native Windows installation.
   type: "sqlite"
   path: "data/office.db"
 
@@ -35,9 +37,14 @@ edge_integration:
   base_url: "https://backend.example.com"
   device_api_key: "REPLACE_ON_DEVICE_ONLY"
   device_id: "REPLACE_WITH_DEVICE_UUID"
-  sync_interval_seconds: 300
+  # ERP employees are synchronized into the local database once per hour.
+  sync_interval_seconds: 3600
   full_sync_interval_seconds: 86400
   page_size: 200
+  # An operator may add up to this many approved local photos per ERP person.
+  local_reference_photo_limit: 10
+  # Outbox delivery is independent from the hourly people synchronization.
+  delivery_poll_interval_seconds: 5
   recognition_threshold: 0.40
   event_cooldown_seconds: 60
   request_timeout_seconds: 10
