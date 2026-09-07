@@ -159,6 +159,33 @@ class EdgeServiceTests(unittest.TestCase):
         finally:
             session.close()
 
+    def test_compact_sync_payload_preserves_cached_identity_and_embedding(self):
+        person_id = "f1d0d2f4-6a2e-4f3f-a42a-990063865000"
+        session = self.service.Session()
+        try:
+            self.service._upsert_person(session, {
+                "id": person_id,
+                "person_type": "employee",
+                "fio": "Cached Person",
+                "person_photo_url": "https://erp.example.test/person.jpg",
+                "embedding": [0.1] * 512,
+            })
+            session.commit()
+            self.service._upsert_person(session, {
+                "id": person_id,
+                "person_type": "employee",
+                "active": True,
+                "embedding": None,
+            })
+            session.commit()
+            person = session.get(RemotePerson, person_id)
+            self.assertEqual(person.fio, "Cached Person")
+            self.assertEqual(person.photo_url, "https://erp.example.test/person.jpg")
+            self.assertEqual(person.embedding_status, "ready")
+            self.assertAlmostEqual(float(np.linalg.norm(np.asarray(person.embedding))), 1.0, places=5)
+        finally:
+            session.close()
+
     def test_local_reference_photo_adds_an_extra_matching_embedding(self):
         class FakeRecognizer:
             @staticmethod

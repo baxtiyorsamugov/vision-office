@@ -56,6 +56,29 @@ Invoke-RestMethod http://127.0.0.1:8000/api/v1/health
 
 The dashboard's **Synchronization** page displays the cached people, sync error, queue state, and local reference-photo count.
 
+## Controlled ERP Catalog Bootstrap
+
+Use this whenever the production `persons/sync` endpoint lacks names and official photo URLs and people or main photos have changed in ERP. It imports the current approved backend catalog into the local PostgreSQL cache and creates each face embedding on the Edge device. It does not store the temporary administrator password or access token.
+
+Run this command from the project root. Enter the password only in the Windows credential prompt; do not place it in a script, `settings.yaml`, `.env`, or terminal command history.
+
+```powershell
+$credential = Get-Credential -UserName admin -Message "Temporary ERP catalog import"
+$env:VISION_OFFICE_IMPORT_PASSWORD = $credential.GetNetworkCredential().Password
+docker compose run --rm --no-deps -e VISION_OFFICE_IMPORT_PASSWORD migrate python tools/import_backend_people.py --base-url https://erp.example.uz --center-id YOUR_LEARNING_CENTER_UUID --username admin
+Remove-Item Env:VISION_OFFICE_IMPORT_PASSWORD
+```
+
+The tool prints only totals: catalog records, local records updated, recognition-ready records and failures. It spaces photo processing by a fraction of a second so the running camera remains responsive. The `vision-worker` reloads local embeddings within a few seconds. Verify the result:
+
+```powershell
+docker compose exec -T postgres psql -U vision_office -d vision_office -Atc "SELECT count(*) AS active_people, count(*) FILTER (WHERE embedding_status = 'ready') AS recognition_ready FROM remote_persons WHERE active = true;"
+docker compose restart edge-sync
+docker compose logs --tail 100 edge-sync
+```
+
+Restarting `edge-sync` after a successful import is safe: compact ERP responses no longer erase an already cached name, source photo or valid embedding. New people still require this controlled import until ERP extends the device sync contract.
+
 ## Adding Extra Photos
 
 1. Open `http://127.0.0.1:8501`.

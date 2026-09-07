@@ -42,7 +42,15 @@ The Edge device synchronizes this catalog hourly by default. An operator may add
 
 The currently deployed production `persons/sync` endpoint returns only `id`, `person_type`, `embedding`, `active` and `updated_at`. This is insufficient for the Edge integration: it cannot display a person name, preserve an ERP identifier, or download a source photo when the embedding is missing.
 
-Before enabling a fresh production Edge sync, extend `PersonSyncOut` with `fio`, `erp_person_id` and an absolute `person_photo_url`, or provide an equivalent device-authorized person-detail endpoint. The supplied photo URL must be reachable using the device bearer token. Do not solve this by placing an administrator password or administrator JWT on the Edge device.
+Before enabling automatic onboarding for new people, extend `PersonSyncOut` with `fio`, `erp_person_id` and an absolute `person_photo_url`, or provide an equivalent device-authorized person-detail endpoint. The supplied photo URL must be reachable using the device bearer token. Do not solve this by placing an administrator password or administrator JWT on the Edge device.
+
+The Edge now preserves an already cached name, photo URL and valid local embedding when it receives this compact production response. Therefore the hourly sync can safely refresh active status and server embeddings without damaging an imported local catalog. It still cannot create a usable named/photo fallback for a person that was never loaded locally.
+
+## Controlled Catalog Bootstrap
+
+`tools/import_backend_people.py` is an operator recovery tool for the temporary production contract gap. It reads the authenticated person-detail list once, writes names and official photo URLs to local PostgreSQL, and derives a local 512-value embedding from each official photo. The administrator password and access token exist only in the operator process and are never written to `settings.yaml`, `.env`, the database or Git.
+
+Run it only from the Edge device after the Docker stack is healthy. The procedure is in [the PostgreSQL runbook](POSTGRESQL_RUNBOOK.md#controlled-erp-catalog-bootstrap). After the import, the normal device-key hourly sync continues to operate without needing administrator credentials.
 
 ## Recognition event delivery
 

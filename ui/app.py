@@ -208,6 +208,7 @@ def render_navigation():
 
 def render_control_center():
     render_header("Операционный центр", "Камеры, распознавание и регистрация присутствия")
+    edge_settings = load_edge_settings()
     runtime = read_runtime_status() or {}
     live_running = bool(runtime.get("running")) if managed_runtime() else process_running("live_process")
     demo_running = process_running("demo_process")
@@ -216,7 +217,10 @@ def render_control_center():
 
     session = Session()
     try:
-        employee_count = session.query(Employee).count()
+        employee_count = (
+            session.query(RemotePerson).filter(RemotePerson.active.is_(True)).count()
+            if edge_settings.configured else session.query(Employee).count()
+        )
         day_start, day_end = day_bounds(date.today())
         today_count = session.query(Attendance.employee_id).filter(
             Attendance.timestamp >= day_start, Attendance.timestamp < day_end,
@@ -385,6 +389,45 @@ def render_analytics():
 
 def render_people():
     render_header("Сотрудники", "Профили и последние события присутствия")
+    edge_settings = load_edge_settings()
+    if edge_settings.configured:
+        session = Session()
+        try:
+            people = session.query(RemotePerson).filter(
+                RemotePerson.active.is_(True)
+            ).order_by(RemotePerson.fio.asc(), RemotePerson.id.asc()).all()
+            photo_counts = dict(session.query(
+                RemotePersonReferencePhoto.person_id,
+                func.count(RemotePersonReferencePhoto.id),
+            ).filter(
+                RemotePersonReferencePhoto.active.is_(True)
+            ).group_by(RemotePersonReferencePhoto.person_id).all())
+        finally:
+            session.close()
+        if not people:
+            st.info("Каталог ERP ещё не загружен в локальный кэш.")
+            return
+        status_names = {
+            "ready": "Готов",
+            "pending": "Обрабатывается",
+            "invalid": "Требуется фото",
+        }
+        ready_count = sum(person.embedding_status == "ready" for person in people)
+        first, second = st.columns(2)
+        first.metric("Активные сотрудники", len(people))
+        second.metric("Готовы к распознаванию", ready_count)
+        st.caption("Основной каталог поступает из ERP. Дополнительные локальные фото добавляются на вкладке «Регистрация» и не изменяют ERP.")
+        st.dataframe(
+            pd.DataFrame([{
+                "ФИО": display_name(person.fio or f"{person.person_type} {person.id[:8]}"),
+                "Тип": person.person_type,
+                "Распознавание": status_names.get(person.embedding_status, person.embedding_status),
+                "Доп. фото": photo_counts.get(person.id, 0),
+            } for person in people]),
+            use_container_width=True,
+            hide_index=True,
+        )
+        return
     session = Session()
     try:
         employees = session.query(Employee).order_by(Employee.full_name.asc()).all()

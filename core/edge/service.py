@@ -134,15 +134,21 @@ class EdgeService:
             person = RemotePerson(id=person_id)
             session.add(person)
         person.person_type = person_type
-        person.fio = str(payload.get("fio") or payload.get("full_name") or "") or None
+        # Production sync currently returns a compact payload.  Never let that
+        # response erase identity metadata or a locally generated embedding.
+        incoming_name = str(payload.get("fio") or payload.get("full_name") or "").strip()
+        if incoming_name:
+            person.fio = incoming_name
         person.active = bool(payload.get("active", True))
-        person.photo_url = str(payload.get("person_photo_url") or "") or None
+        incoming_photo_url = str(payload.get("person_photo_url") or payload.get("photo_url") or "").strip()
+        if incoming_photo_url:
+            person.photo_url = incoming_photo_url
         if self._valid_embedding(embedding):
             normalized = self._normalize_embedding(embedding)
             person.embedding = normalized.tolist()
             person.embedding_status = "ready"
             person.embedding_error = None
-        else:
+        elif not self._valid_embedding(person.embedding):
             person.embedding = None
             person.embedding_status = "pending"
             person.embedding_error = "ERP embedding is missing or invalid; photo fallback is required"

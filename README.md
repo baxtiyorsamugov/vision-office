@@ -82,6 +82,12 @@ local matching cache from `/persons/sync`, sends `entry` and `unknown` events th
 an on-disk outbox, and disables local registration. The first synchronization happens
 after the recognition worker starts. Review its status on the **Registration** page.
 
+If the current ERP `persons/sync` endpoint does not provide names and official photo
+URLs, use the controlled one-time catalog bootstrap documented in the
+[PostgreSQL runbook](docs/POSTGRESQL_RUNBOOK.md#controlled-erp-catalog-bootstrap).
+It does not persist administrator credentials and is only needed until the ERP device
+sync contract is extended.
+
 ## Transfer archive
 
 ```powershell
