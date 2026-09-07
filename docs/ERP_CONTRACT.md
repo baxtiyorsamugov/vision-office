@@ -38,6 +38,12 @@ Response is a JSON array. Each item must contain:
 
 The Edge device synchronizes this catalog hourly by default. An operator may add approved local reference photos to a synchronized person. Those photos and embeddings are never written back to ERP and remain attached to the person after future ERP updates; each valid local photo contributes an additional local matching vector.
 
+## Production Contract Gap Observed 2026-09-07
+
+The currently deployed production `persons/sync` endpoint returns only `id`, `person_type`, `embedding`, `active` and `updated_at`. This is insufficient for the Edge integration: it cannot display a person name, preserve an ERP identifier, or download a source photo when the embedding is missing.
+
+Before enabling a fresh production Edge sync, extend `PersonSyncOut` with `fio`, `erp_person_id` and an absolute `person_photo_url`, or provide an equivalent device-authorized person-detail endpoint. The supplied photo URL must be reachable using the device bearer token. Do not solve this by placing an administrator password or administrator JWT on the Edge device.
+
 ## Recognition event delivery
 
 `POST /api/v1/learning-centers/access-logs`

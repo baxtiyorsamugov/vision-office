@@ -14,7 +14,7 @@
 | Stage | Status | Goal | Acceptance criteria | Dependencies | Verification |
 | --- | --- | --- | --- | --- | --- |
 | Foundation | DONE | Establish delivery rules, configuration, logging and safe SQLite migrations. | Additive migrations, validation and rotating logs are implemented and tested. | Local SQLite, project config. | `unittest` migration/config/log tests; real SQLite migration smoke check. |
-| ERP data sync | DONE | Synchronize people, reference photos and 512-value embeddings through an adapter and mock ERP. | Cache accepts normalized ERP vectors; photo fallback records invalid reasons or local photo/embedding. | Foundation; ERP mock contract. | Mock sync, invalid input and photo-fallback tests. |
+| ERP data sync | BLOCKED | Synchronize people, reference photos and 512-value embeddings through an adapter and ERP. | Mock-compatible cache and fallback are implemented and tested. Production `/persons/sync` was verified, but currently omits `fio`, `erp_person_id` and photo URL, so the Edge cannot safely build or refresh a named photo fallback. | Foundation; production sync payload with identity metadata. | Mock sync, invalid input and photo-fallback tests; production contract inspection on 2026-09-07. |
 | Recognition events | BLOCKED | Persist entry/exit, event images and deduplicated local events. | Local immutable events carry camera, direction, confidence and optional image path; unknown faces never leave the device. Code and automated checks are complete; recognition UAT needs a known-face fixture or live camera. | ERP data sync; camera config. | Event deduplication test; known-face video/RTSP acceptance pending. |
 | Two cameras | BLOCKED | Run entry and exit cameras independently. | Supervisor and reconnect logic are implemented; physical two-stream acceptance remains. | Recognition events; supervisor; two approved streams. | Two RTSP/video fixture test and failure injection. |
 | Containerized deployment | DONE | Run worker, API and dashboard as restartable isolated services. | Docker Desktop CPU build, migrations, API, dashboard, one RTSP worker and restart recovery passed. Runtime dependencies are baked into the image and RTSP credentials are redacted from application logs. | Docker Desktop Linux containers; approved model files; camera config. | Docker Compose build, startup, API health, worker restart and camera recovery. |
@@ -37,6 +37,7 @@
 | 2026-09-04 | DONE | Hardened the Docker runtime environment: service-specific environment blocks now retain shared settings, and the container entrypoint creates the transient Ultralytics settings directory before Python starts. | Rebuilt image; verified all services healthy, worker received `YOLO_CONFIG_DIR`, no Ultralytics permissions warning, live camera connected and API health returned `ok`. |
 | 2026-09-07 | DONE | Moved the Docker runtime cache from SQLite to PostgreSQL, migrated the existing local records, and added an isolated `edge-sync` service. ERP synchronization is scheduled once per hour; event delivery still polls the durable outbox every 5 seconds. Operators can now enroll up to 10 device-local reference photos per ERP person; each valid photo adds an independent embedding without modifying ERP data. | 26 unit tests; `docker compose` build/start; PostgreSQL/API/UI health; PostgreSQL data-count smoke check; live RTSP worker; clean `edge-sync` scheduler logs; UI smoke check of the photo-enrollment form. |
 | 2026-09-07 | DONE | Added the standalone local camera monitor at `/monitor`. It reads worker-generated JPEG previews rather than RTSP, and its one-slot background publisher skips obsolete frames instead of delaying recognition. | 27 unit tests; Docker rebuild; API preview/status checks; browser screenshot of the live monitor; camera remained connected with 25.1 capture FPS and 13 detection FPS. |
+| 2026-09-07 | DONE | Uploaded 17 employee records and their photos to the approved production learning center through the administrator-authorized API. One pre-existing record was updated rather than duplicated. | Backend list verification: 17 expected people present, active and carrying a photo URL; local ignored upload report. |
 
 ## Containerized deployment
 
@@ -56,7 +57,7 @@
 
 | Status | Missing input | Needed for | Temporary behavior |
 | --- | --- | --- | --- |
-| BLOCKED | Production ERP base URL, authentication method and final request/response examples. | Switching ERP adapter from mock to production. | Use the documented mock contract. |
+| BLOCKED | Production `GET /api/v1/learning-centers/persons/sync` response needs `fio`, `erp_person_id` and an absolute `person_photo_url` (or a separate device-authorized detail endpoint). | Named employee cache, automatic photo fallback and production recognition synchronization. | Keep the current local cache running; do not force a full Edge sync until the contract is extended. |
 | BLOCKED | Telegram bot token and responsible chat IDs. | Production alert delivery. | Log incidents locally; no Telegram messages are sent. |
 | BLOCKED | Two stable RTSP URLs or approved video fixtures representing entry and exit cameras. | Two-camera acceptance and benchmark. | Use local video fixtures for automated tests. |
 | BLOCKED | A short approved video or live stream where a registered/remote employee is visible. | Recognition-event acceptance including event photo and ERP payload. | Unit tests cover event storage and delivery contract. |
@@ -71,4 +72,4 @@
 
 ## Next step
 
-Run the two-camera acceptance with the actual entry and exit RTSP streams: keep both running for 30 minutes, then disable one stream and verify that the other continues. After that, complete production ERP/Telegram UAT and the 30-minute stability benchmark.
+Extend the production ERP sync contract with identity metadata and verify a real employee embedding/photo reaches the Edge cache. Then run the two-camera acceptance with the actual entry and exit RTSP streams, followed by production Telegram UAT and the 30-minute stability benchmark.
