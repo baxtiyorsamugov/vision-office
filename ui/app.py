@@ -70,8 +70,10 @@ def apply_theme():
         .stButton > button:hover, .stLinkButton > a:hover { background:var(--green-dark); border-color:var(--green-dark); color:#fff; transform:translateY(-1px); }
         .stButton > button[kind="secondary"] { background:#fff; color:var(--ink); border-color:var(--line); }.stButton > button[kind="secondary"]:hover { background:#f5f5f5; border-color:#d8d8d8; color:var(--ink); }
         .stTextInput input,.stSelectbox [data-baseweb="select"] > div,.stDateInput input,[data-testid="stFileUploaderDropzone"] { min-height:42px!important; background:#fff!important; border:1px solid var(--line)!important; border-radius:12px!important; box-shadow:none!important; }
-        [data-testid="stDataFrame"] { border:1px solid var(--line); border-radius:14px; overflow:hidden; background:#fff; }
+        [data-testid="stDataFrame"] { border:1px solid var(--line); border-radius:10px; overflow:hidden; background:#fff; }
         [data-testid="stDataFrame"] [role="gridcell"] { font-size:13px!important; }
+        [data-testid="stDataFrame"] [role="columnheader"] { background:#f8faf9!important; color:#626a72!important; font-size:11px!important; font-weight:700!important; letter-spacing:0!important; text-transform:uppercase; }
+        .directory-summary { color:var(--muted); font-size:12px; padding:8px 0 10px; }
         .employee-head { display:flex; align-items:center; gap:16px; padding:5px 3px; }.employee-photo,.employee-fallback { width:82px; height:82px; border-radius:50%; object-fit:cover; border:4px solid #fff; box-shadow:0 3px 12px rgba(28,33,38,.1); }.employee-fallback { background:var(--green-soft); color:var(--green); display:flex; align-items:center; justify-content:center; font-size:25px; font-weight:700; }.employee-name { color:var(--ink); font-size:23px; font-weight:650; margin-bottom:3px; }.employee-role { color:var(--green); font-size:13px; font-weight:650; margin-bottom:7px; }.employee-meta { color:var(--muted); font-size:13px; }
         .empty-state { padding:48px 18px; text-align:center; color:var(--muted); border:1px dashed #d9d9d9; border-radius:18px; background:#fff; }.section-rule { border:0; border-top:1px solid var(--line); margin:26px 0; }
         .activity-meta { color:var(--muted); font-size:12px; text-align:right; line-height:1.5; }
@@ -237,6 +239,70 @@ def profile_photo_path(photo_path):
     """Resolve a database photo path without exposing external ERP URLs to the UI."""
     path = PROJECT_ROOT / (photo_path or "")
     return path if path.is_file() else None
+
+
+def profile_photo_data_uri(photo_path):
+    """Return a table-safe preview for a local image, never an ERP-hosted URL."""
+    path = profile_photo_path(photo_path)
+    if not path:
+        return None
+    mime_type = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
+    encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+    return f"data:{mime_type};base64,{encoded}"
+
+
+def render_directory_table(rows, key):
+    """Render a compact, paginated directory table without changing catalog data."""
+    if not rows:
+        st.caption("Поиск не нашёл сотрудников.")
+        return []
+
+    controls, page_size_control, page_control = st.columns([3, 1, 1], gap="small", vertical_alignment="bottom")
+    with controls:
+        st.markdown(
+            f"<div class='directory-summary'>Найдено: {len(rows)}</div>",
+            unsafe_allow_html=True,
+        )
+    with page_size_control:
+        page_size = st.selectbox("На странице", [10, 25, 50], key=f"{key}_page_size")
+
+    page_count = max(1, (len(rows) + page_size - 1) // page_size)
+    page_key = f"{key}_page"
+    if st.session_state.get(page_key, 1) > page_count:
+        st.session_state[page_key] = 1
+    with page_control:
+        page = st.selectbox(
+            "Страница",
+            list(range(1, page_count + 1)),
+            format_func=lambda value: f"{value} / {page_count}",
+            key=page_key,
+        )
+
+    start = (page - 1) * page_size
+    page_rows = rows[start:start + page_size]
+    table_data = pd.DataFrame(page_rows)
+    column_order = [
+        column for column in ["№", "Фото", "Сотрудник", "Роль / тип", "FaceID", "Доп. фото", "Посещений", "Профиль"]
+        if column in table_data.columns
+    ]
+    st.dataframe(
+        table_data,
+        use_container_width=True,
+        hide_index=True,
+        column_order=column_order,
+        height=min(132 + len(page_rows) * 40, 540),
+        column_config={
+            "№": st.column_config.NumberColumn("№", width="small", format="%d"),
+            "Фото": st.column_config.ImageColumn("Фото", width="small"),
+            "Сотрудник": st.column_config.TextColumn("Сотрудник", width="large"),
+            "Роль / тип": st.column_config.TextColumn("Роль / тип", width="medium"),
+            "FaceID": st.column_config.TextColumn("FaceID", width="medium"),
+            "Доп. фото": st.column_config.NumberColumn("Доп. фото", width="small", format="%d"),
+            "Посещений": st.column_config.NumberColumn("Посещений", width="small", format="%d"),
+            "Профиль": st.column_config.TextColumn("Профиль", width="medium"),
+        },
+    )
+    return page_rows
 
 
 def render_profile_header(name, source, profile_id, photo_path, role, status, detail):
@@ -555,18 +621,23 @@ def render_people():
                 search = st.text_input("Поиск в ERP", placeholder="Имя или тип", key="erp_people_search")
                 search_value = search.strip().casefold()
                 filtered_people = [person for person in people if not search_value or search_value in (person.fio or "").casefold() or search_value in person.person_type.casefold()]
-                st.dataframe(
-                    pd.DataFrame([{
-                        "ФИО": display_name(person.fio or f"{person.person_type} {person.id[:8]}"),
-                        "Тип": person.person_type,
-                        "Шаблон": status_names.get(person.embedding_status, person.embedding_status),
+                page_people = render_directory_table(
+                    [{
+                        "№": index,
+                        "Фото": profile_photo_data_uri(person.photo_path),
+                        "Сотрудник": display_name(person.fio or f"{person.person_type} {person.id[:8]}"),
+                        "Роль / тип": person.person_type,
+                        "FaceID": status_names.get(person.embedding_status, person.embedding_status),
                         "Доп. фото": photo_counts.get(person.id, 0),
-                    } for person in filtered_people]),
-                    use_container_width=True,
-                    hide_index=True,
+                        "Профиль": "Открыть ниже",
+                    } for index, person in enumerate(filtered_people, start=1)],
+                    "erp_people",
                 )
-                if filtered_people:
-                    options = {f"{display_name(person.fio or 'Без имени')} · {person.id[:8]}": person for person in filtered_people}
+                if page_people:
+                    options = {
+                        f"{row['Сотрудник']} · {filtered_people[row['№'] - 1].id[:8]}": filtered_people[row["№"] - 1]
+                        for row in page_people
+                    }
                     selected_label = st.selectbox("Открыть профиль ERP", list(options), key="erp_people_detail")
                     person = options[selected_label]
                     session = Session()
@@ -586,8 +657,6 @@ def render_people():
                         f"основное + {photo_counts.get(person.id, 0)} доп.",
                     )
                     render_event_history(events, "У этого ERP-сотрудника пока нет локальных событий распознавания.")
-                else:
-                    st.caption("Поиск не нашёл сотрудников ERP.")
         with local_tab:
             if not local_employees:
                 st.caption("Локальных сотрудников пока нет. Их можно добавить на вкладке «Регистрация».")
@@ -596,18 +665,23 @@ def render_people():
                 search = st.text_input("Поиск в локальной базе", placeholder="Имя или роль", key="local_people_search")
                 search_value = search.strip().casefold()
                 filtered_employees = [employee for employee in local_employees if not search_value or search_value in employee.full_name.casefold() or search_value in (employee.role or "").casefold()]
-                st.dataframe(
-                    pd.DataFrame([{
-                        "ФИО": display_name(employee.full_name),
-                        "Роль": employee.role or "Не указана",
-                        "Шаблон": "Готов" if employee.face_embeddings else "Нет",
+                page_employees = render_directory_table(
+                    [{
+                        "№": index,
+                        "Фото": profile_photo_data_uri(employee.photo_path),
+                        "Сотрудник": display_name(employee.full_name),
+                        "Роль / тип": employee.role or "Не указана",
+                        "FaceID": "Готов" if employee.face_embeddings else "Нет",
                         "Посещений": local_event_counts.get(employee.id, 0),
-                    } for employee in filtered_employees]),
-                    use_container_width=True,
-                    hide_index=True,
+                        "Профиль": "Открыть ниже",
+                    } for index, employee in enumerate(filtered_employees, start=1)],
+                    "local_people",
                 )
-                if filtered_employees:
-                    options = {f"{display_name(employee.full_name)} · #{employee.id:04d}": employee for employee in filtered_employees}
+                if page_employees:
+                    options = {
+                        f"{row['Сотрудник']} · #{filtered_employees[row['№'] - 1].id:04d}": filtered_employees[row["№"] - 1]
+                        for row in page_employees
+                    }
                     selected_label = st.selectbox("Открыть локальный профиль", list(options), key="local_people_detail")
                     employee = options[selected_label]
                     session = Session()
@@ -631,8 +705,6 @@ def render_people():
                     )
                     render_local_attendance_history(attendance)
                     render_event_history(events, "Событий камеры для этого локального профиля пока нет.")
-                else:
-                    st.caption("Поиск не нашёл локальных сотрудников.")
         return
     session = Session()
     try:
