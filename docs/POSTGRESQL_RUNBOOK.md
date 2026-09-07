@@ -32,6 +32,17 @@ docker compose logs --tail 100 edge-sync
 
 Expected state: `postgres`, `vision-worker`, `edge-sync`, `api`, and `ui` are running; `migrate` is `Exited (0)`. PostgreSQL is deliberately not exposed to the LAN. Use `docker compose exec postgres psql -U vision_office -d vision_office` only from the local device when administration is required.
 
+### Existing Database and a Changed `.env` Password
+
+PostgreSQL reads `POSTGRES_PASSWORD` only when its data volume is created for the first time. If `.env` was changed after a previous start, do not delete the volume or the data. Align the existing database role with the password from the current `.env`, then restart the stack:
+
+```powershell
+docker compose exec -T postgres sh -lc '{ printf "\\password %s\n" "$POSTGRES_USER"; printf "%s\n%s\n" "$POSTGRES_PASSWORD" "$POSTGRES_PASSWORD"; } | psql -U "$POSTGRES_USER" -d postgres'
+docker compose up -d
+```
+
+The command reads the password only inside the PostgreSQL container; it does not print it or store it in the terminal history.
+
 ## ERP Schedule
 
 `edge_integration.sync_interval_seconds` is `3600` by default and in the device configuration. The first sync runs after `edge-sync` starts; each following people sync runs once per hour. Access-event delivery remains independent and checks the durable outbox every five seconds.
