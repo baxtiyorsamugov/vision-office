@@ -346,7 +346,12 @@ class EdgeService:
 
     def queue_access_event(self, event: RecognitionEvent) -> bool:
         """Queue a recognized employee event. Unknown events deliberately remain local."""
-        if not self.settings.configured or not event.person_id or event.person_type != "employee":
+        if (
+            not self.settings.configured
+            or not event.person_id
+            or event.person_id.startswith("local:")
+            or event.person_type != "employee"
+        ):
             return False
         now = datetime.now(ZoneInfo(self.settings.timezone))
         signature = f"{event.person_id}:{event.camera_id}:{event.event_type}"

@@ -42,8 +42,9 @@ def run_camera(camera: CameraSettings, ai_settings: dict, log_level: str = "INFO
         camera_id=camera.id,
         event_type=camera.event_type,
     )
-    edge_enabled = load_edge_settings().enabled
-    hr = None if edge_enabled else HRManager(cooldown_minutes=1)
+    # HRManager filters on the local identity prefix, so ERP recognition is
+    # never written to the device-only attendance table.
+    hr = HRManager(cooldown_minutes=1)
     stream = VideoStream(camera.rtsp_url).start()
     preview = CameraPreviewPublisher(
         camera.id,
@@ -78,8 +79,7 @@ def run_camera(camera: CameraSettings, ai_settings: dict, log_level: str = "INFO
             for item in results:
                 x1, y1, x2, y2 = item["box"]
                 name = item["name"]
-                if hr is not None:
-                    hr.register_presence(name)
+                hr.register_presence(item, event_type=camera.event_type)
                 frame = draw_detection_label(frame, (x1, y1, x2, y2), name)
 
             # Preview encoding runs in a separate one-slot mailbox. It never

@@ -60,6 +60,24 @@ class EdgeServiceTests(unittest.TestCase):
         finally:
             session.close()
 
+    def test_local_employee_event_is_never_queued_for_erp(self):
+        event = RecognitionEvent(
+            id="b0d0d2f4-6a2e-4f3f-a42a-990063865000",
+            camera_id="entry-camera",
+            event_type="entry",
+            person_id="local:12",
+            person_type="local_employee",
+            person_name="Local Person",
+            subject_signature="local:12",
+            confidence=0.91,
+        )
+        self.assertFalse(self.service.queue_access_event(event))
+        session = self.service.Session()
+        try:
+            self.assertEqual(session.query(AccessLogOutbox).count(), 0)
+        finally:
+            session.close()
+
     def test_known_event_payload_has_camera_and_idempotency_context(self):
         event = RecognitionEvent(
             id="e0d0d2f4-6a2e-4f3f-a42a-990063865000",

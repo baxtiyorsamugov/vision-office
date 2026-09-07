@@ -14,7 +14,7 @@ def run_test(headless=False, duration_seconds=None):
     print(f"Starting test video: {video_path}")
     
     ai = AI_Engine(detection_imgsz=960, camera_id="test_video", event_type="entry")
-    hr = None if load_edge_settings().enabled else HRManager(cooldown_minutes=1)
+    hr = HRManager(cooldown_minutes=1)
     stream = VideoStream(video_path).start()
     last_status_update = 0.0
     started_at = time.monotonic()
@@ -42,8 +42,7 @@ def run_test(headless=False, duration_seconds=None):
             for item in results:
                 x1, y1, x2, y2 = item['box']
                 name = item['name']
-                if hr is not None:
-                    hr.register_presence(name)
+                hr.register_presence(item, event_type="entry")
 
                 frame = draw_detection_label(frame, (x1, y1, x2, y2), name)
 

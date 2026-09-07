@@ -43,25 +43,37 @@ def edge_delivery_worker(stop_event):
     run_sync_loop(stop_event)
 
 def _load_known_faces(Session, edge_service=None, remote_mode=False):
-    if edge_service is not None:
-        return edge_service.cache_embeddings()
-    if remote_mode:
-        return [], None
+    """Load ERP and device-local people into one in-memory matching cache.
 
+    A local identity intentionally uses a non-ERP ID and type. That lets the
+    event pipeline record local attendance while the ERP outbox ignores it.
+    """
     from database.models import Employee
+
+    names = []
+    vectors = []
+    if edge_service is not None:
+        remote_names, remote_embeddings = edge_service.cache_embeddings()
+        if remote_embeddings is not None:
+            for identity, vector in zip(remote_names, remote_embeddings):
+                normalized = np.asarray(vector, dtype=np.float32)
+                if normalized.shape == (512,) and np.isfinite(normalized).all():
+                    names.append(identity)
+                    vectors.append(normalized)
 
     session = Session()
     try:
         employees = session.query(Employee).all()
-        names = []
-        vectors = []
-
         for emp in employees:
             for stored_v in emp.face_embeddings or []:
                 stored_emb = np.asarray(stored_v, dtype=np.float32)
                 norm = np.linalg.norm(stored_emb)
-                if norm > 0:
-                    names.append({"name": emp.full_name, "person_id": None, "person_type": "employee"})
+                if stored_emb.shape == (512,) and np.isfinite(stored_emb).all() and norm > 0:
+                    names.append({
+                        "name": emp.full_name,
+                        "person_id": f"local:{emp.id}",
+                        "person_type": "local_employee",
+                    })
                     vectors.append(stored_emb / norm)
 
         if not vectors:

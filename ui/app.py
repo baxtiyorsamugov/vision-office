@@ -118,6 +118,73 @@ def get_recognizer():
     return FaceRecognizer()
 
 
+def create_local_employee(name, role, raw_photo):
+    """Create a device-only person with an embedding stored in local PostgreSQL."""
+    if not name or not name.strip():
+        raise ValueError("Укажите полное имя.")
+    if not role or not role.strip():
+        raise ValueError("Укажите роль сотрудника.")
+    image = cv2.imdecode(np.asarray(bytearray(raw_photo), dtype=np.uint8), cv2.IMREAD_COLOR)
+    if image is None or image.size == 0:
+        raise ValueError("Фотография повреждена или имеет неподдерживаемый формат.")
+    embedding = get_recognizer().get_embedding(image)
+    if embedding is None:
+        raise ValueError("На фотографии не найдено лицо.")
+    faces_dir = PROJECT_ROOT / "data" / "faces"
+    faces_dir.mkdir(parents=True, exist_ok=True)
+    safe_name = "_".join("".join(char for char in name.strip() if char.isalnum() or char in " _-").split()) or "local"
+    photo_path = faces_dir / f"{safe_name}_{time.time_ns()}.jpg"
+    if not cv2.imwrite(str(photo_path), image):
+        raise ValueError("Не удалось сохранить локальную фотографию.")
+    session = Session()
+    try:
+        employee = Employee(
+            full_name=name.strip(),
+            face_embeddings=[np.asarray(embedding, dtype=np.float32).tolist()],
+            role=role.strip(),
+            photo_path=str(photo_path.relative_to(PROJECT_ROOT)).replace("\\", "/"),
+        )
+        session.add(employee)
+        session.commit()
+        session.refresh(employee)
+        return employee
+    except Exception:
+        session.rollback()
+        photo_path.unlink(missing_ok=True)
+        raise
+    finally:
+        session.close()
+
+
+def render_local_employee_form(form_key):
+    st.subheader("Локальный сотрудник")
+    st.caption("Профиль, фото и посещаемость останутся только в локальной PostgreSQL. События этого сотрудника не отправляются в ERP.")
+    with st.form(form_key, clear_on_submit=True):
+        left, right = st.columns([3, 2], gap="large")
+        with left:
+            name = st.text_input("Полное имя", placeholder="Например, Бекзод Хаитов")
+            role = st.selectbox("Роль", ["Сотрудник", "Учитель", "Ученик", "Гость", "Другая"], key=f"{form_key}_role")
+            custom_role = st.text_input("Название роли", key=f"{form_key}_custom_role") if role == "Другая" else ""
+        with right:
+            uploaded_file = st.file_uploader("Фотография", type=["jpg", "jpeg", "png"], key=f"{form_key}_photo")
+        submitted = st.form_submit_button("Добавить локально", use_container_width=True)
+    if not submitted:
+        return
+    if not uploaded_file:
+        st.warning("Добавьте фотографию с хорошо видимым лицом.")
+        return
+    selected_role = custom_role.strip() if role == "Другая" else role
+    try:
+        with st.spinner("Проверяем лицо и создаём локальный биометрический шаблон"):
+            employee = create_local_employee(name, selected_role, uploaded_file.getvalue())
+        st.success(f"Локальный профиль #{employee.id:04d} создан. Камера начнёт использовать его в течение нескольких секунд.")
+        st.rerun()
+    except ValueError as error:
+        st.error(str(error))
+    except Exception:
+        st.error("Не удалось создать локальный профиль. Проверьте логи и повторите попытку.")
+
+
 def process_running(state_key):
     process = st.session_state.get(state_key)
     return process is not None and process.poll() is None
@@ -218,7 +285,7 @@ def render_control_center():
     session = Session()
     try:
         employee_count = (
-            session.query(RemotePerson).filter(RemotePerson.active.is_(True)).count()
+            session.query(RemotePerson).filter(RemotePerson.active.is_(True)).count() + session.query(Employee).count()
             if edge_settings.configured else session.query(Employee).count()
         )
         day_start, day_end = day_bounds(date.today())
@@ -402,31 +469,53 @@ def render_people():
             ).filter(
                 RemotePersonReferencePhoto.active.is_(True)
             ).group_by(RemotePersonReferencePhoto.person_id).all())
+            local_employees = session.query(Employee).order_by(Employee.full_name.asc(), Employee.id.asc()).all()
+            local_event_counts = dict(session.query(
+                Attendance.employee_id,
+                func.count(Attendance.id),
+            ).group_by(Attendance.employee_id).all())
         finally:
             session.close()
-        if not people:
-            st.info("Каталог ERP ещё не загружен в локальный кэш.")
-            return
         status_names = {
             "ready": "Готов",
             "pending": "Обрабатывается",
             "invalid": "Требуется фото",
         }
         ready_count = sum(person.embedding_status == "ready" for person in people)
-        first, second = st.columns(2)
-        first.metric("Активные сотрудники", len(people))
-        second.metric("Готовы к распознаванию", ready_count)
-        st.caption("Основной каталог поступает из ERP. Дополнительные локальные фото добавляются на вкладке «Регистрация» и не изменяют ERP.")
-        st.dataframe(
-            pd.DataFrame([{
-                "ФИО": display_name(person.fio or f"{person.person_type} {person.id[:8]}"),
-                "Тип": person.person_type,
-                "Распознавание": status_names.get(person.embedding_status, person.embedding_status),
-                "Доп. фото": photo_counts.get(person.id, 0),
-            } for person in people]),
-            use_container_width=True,
-            hide_index=True,
-        )
+        first, second, third = st.columns(3)
+        first.metric("Сотрудники ERP", len(people))
+        second.metric("Локальные сотрудники", len(local_employees))
+        third.metric("ERP готовы к распознаванию", ready_count)
+        st.subheader("Каталог ERP")
+        if people:
+            st.caption("Основной каталог поступает из ERP. Дополнительные локальные фото добавляются на вкладке «Регистрация» и не изменяют ERP.")
+            st.dataframe(
+                pd.DataFrame([{
+                    "ФИО": display_name(person.fio or f"{person.person_type} {person.id[:8]}"),
+                    "Тип": person.person_type,
+                    "Распознавание": status_names.get(person.embedding_status, person.embedding_status),
+                    "Доп. фото": photo_counts.get(person.id, 0),
+                } for person in people]),
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.info("Каталог ERP ещё не загружен в локальный кэш.")
+        st.markdown("<hr class='section-rule'>", unsafe_allow_html=True)
+        st.subheader("Локальная база")
+        if local_employees:
+            st.dataframe(
+                pd.DataFrame([{
+                    "ФИО": display_name(employee.full_name),
+                    "Роль": employee.role or "Не указана",
+                    "Шаблон": "Готов" if employee.face_embeddings else "Нет",
+                    "Локальных посещений": local_event_counts.get(employee.id, 0),
+                } for employee in local_employees]),
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.caption("Локальных сотрудников пока нет. Их можно добавить на вкладке «Регистрация».")
         return
     session = Session()
     try:
@@ -463,42 +552,7 @@ def render_registration():
         render_edge_status(edge_settings)
         return
     render_header("Регистрация сотрудника", "Создание профиля и биометрического шаблона")
-    with st.form("registration_form", clear_on_submit=True):
-        left, right = st.columns([3, 2], gap="large")
-        with left:
-            name = st.text_input("Полное имя", placeholder="Например, Бекзод Хаитов")
-            role = st.selectbox("Роль", ["Сотрудник", "Учитель", "Ученик", "Гость", "Другая"])
-            custom_role = st.text_input("Название роли") if role == "Другая" else ""
-        with right:
-            uploaded_file = st.file_uploader("Фотография", type=["jpg", "jpeg", "png"])
-        submitted = st.form_submit_button("Создать профиль", use_container_width=True)
-    if not submitted:
-        return
-    if not uploaded_file or not name.strip():
-        st.warning("Укажите полное имя и добавьте фотографию.")
-        return
-    selected_role = custom_role.strip() if role == "Другая" else role
-    if not selected_role:
-        st.warning("Укажите роль сотрудника.")
-        return
-    with st.spinner("Создаём биометрический шаблон"):
-        image = cv2.imdecode(np.asarray(bytearray(uploaded_file.getvalue()), dtype=np.uint8), cv2.IMREAD_COLOR)
-        embedding = get_recognizer().get_embedding(image)
-    if embedding is None:
-        st.error("На фотографии не найдено лицо.")
-        return
-    faces_dir = PROJECT_ROOT / "data" / "faces"
-    faces_dir.mkdir(parents=True, exist_ok=True)
-    safe_name = "_".join("".join(char for char in name.strip() if char.isalnum() or char in " _-").split())
-    photo_path = faces_dir / f"{safe_name}_{int(time.time())}.jpg"
-    cv2.imwrite(str(photo_path), image)
-    session = Session()
-    try:
-        session.add(Employee(full_name=name.strip(), face_embeddings=[embedding.tolist()], role=selected_role, photo_path=str(photo_path.relative_to(PROJECT_ROOT)).replace("\\", "/")))
-        session.commit()
-    finally:
-        session.close()
-    st.success("Профиль создан и готов к распознаванию.")
+    render_local_employee_form("registration_form")
 
 
 def render_edge_status(edge_settings):
@@ -523,6 +577,8 @@ def render_edge_status(edge_settings):
 
     if not edge_settings.configured:
         st.error("Интеграция включена, но не заполнены base_url, device_api_key или device_id в локальном settings.yaml.")
+        st.markdown("<hr class='section-rule'>", unsafe_allow_html=True)
+        render_local_employee_form("edge_local_employee_form")
         return
     metrics = st.columns(5)
     metrics[0].metric("Активные люди", active_people)
@@ -535,7 +591,10 @@ def render_edge_status(edge_settings):
     elif sync_state and sync_state.last_incremental_sync_at:
         st.success(f"Последняя синхронизация: {sync_state.last_incremental_sync_at}")
     else:
-        st.info("Синхронизация начнётся при запуске edge-sync. Создание новых людей локально отключено: основной каталог принадлежит ERP.")
+        st.info("Синхронизация начнётся при запуске edge-sync.")
+
+    st.markdown("<hr class='section-rule'>", unsafe_allow_html=True)
+    render_local_employee_form("edge_local_employee_form")
 
     st.markdown("<hr class='section-rule'>", unsafe_allow_html=True)
     st.subheader("Дополнительные фото для распознавания")

@@ -88,6 +88,12 @@ Restarting `edge-sync` after a successful import is safe: compact ERP responses 
 
 The device validates the photo, creates a 512-value embedding, saves the original locally, and adds the vector to matching. It never uploads this extra photo to ERP and never changes the ERP main photo. A camera process reloads the local cache within a few seconds. The default limit is ten active extra photos per person; change `edge_integration.local_reference_photo_limit` only when a larger set is genuinely needed.
 
+## Local-Only Employees
+
+The **Registration** page also supports optional employees that exist only on this Edge device. Enter a name, role and clear face photo under **Local employee**. The photo and 512-value embedding are saved in local PostgreSQL and `data/faces/`; the matching worker includes them alongside the ERP catalog within a few seconds.
+
+Local employee identities are marked internally as `local:<id>`. Their recognized entry/exit events are stored in the local `attendance` table and recognition audit, but are deliberately rejected by the ERP outbox. This separation remains active even when the hourly ERP sync is running.
+
 ## Moving Existing SQLite Data Once
 
 Run this only after PostgreSQL starts and before normal Docker services begin writing attendance data:

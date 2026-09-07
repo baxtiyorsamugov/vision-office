@@ -8,16 +8,19 @@ from unittest.mock import patch
 import cv2
 import numpy as np
 from sqlalchemy import create_engine, inspect
+from sqlalchemy.orm import sessionmaker
 
 from core.config import ConfigurationError, load_app_settings
 from core.edge.config import EdgeSettings
 from core.events import RecognitionEventStore
 import core.logging_setup as logging_setup
 from core.health import HealthChecker, HealthSettings
+from core.hr import HRManager
+from core.ai.engine import _load_known_faces
 from core import performance
 from core.preview import CameraPreviewPublisher, preview_path
 from core.video.streamer import safe_source_label
-from database.models import HealthIncident
+from database.models import Attendance, Employee, HealthIncident
 from database.manager import database_url
 from database.migrations import run_migrations
 from main import headless_mode
@@ -61,6 +64,50 @@ class PlatformTests(unittest.TestCase):
         )
         self.assertIsNotNone(first)
         self.assertIsNone(second)
+
+    def test_local_employee_is_merged_into_the_erp_matching_cache(self):
+        run_migrations(self.engine)
+        session = sessionmaker(bind=self.engine)()
+        try:
+            employee = Employee(full_name="Local Person", role="Сотрудник", face_embeddings=[[0.2] * 512])
+            session.add(employee)
+            session.commit()
+            session.refresh(employee)
+        finally:
+            session.close()
+
+        class FakeEdgeService:
+            @staticmethod
+            def cache_embeddings():
+                return ([{"name": "ERP Person", "person_id": "erp-person", "person_type": "employee"}], np.ones((1, 512), dtype=np.float32))
+
+        identities, embeddings = _load_known_faces(sessionmaker(bind=self.engine), FakeEdgeService(), remote_mode=True)
+        self.assertEqual(embeddings.shape, (2, 512))
+        self.assertEqual(identities[0]["person_id"], "erp-person")
+        self.assertEqual(identities[1]["person_id"], f"local:{employee.id}")
+        self.assertEqual(identities[1]["person_type"], "local_employee")
+
+    def test_local_attendance_is_stored_while_erp_identity_is_ignored(self):
+        run_migrations(self.engine)
+        session = sessionmaker(bind=self.engine)()
+        try:
+            employee = Employee(full_name="Local Person", role="Сотрудник", face_embeddings=[[0.2] * 512])
+            session.add(employee)
+            session.commit()
+            session.refresh(employee)
+        finally:
+            session.close()
+        hr = HRManager(cooldown_minutes=0, engine=self.engine)
+        hr.register_presence({"person_id": f"local:{employee.id}", "person_type": "local_employee", "name": employee.full_name}, event_type="exit")
+        hr.register_presence({"person_id": "erp-person", "person_type": "employee", "name": "ERP Person"}, event_type="entry")
+        session = sessionmaker(bind=self.engine)()
+        try:
+            records = session.query(Attendance).all()
+            self.assertEqual(len(records), 1)
+            self.assertEqual(records[0].employee_id, employee.id)
+            self.assertEqual(records[0].event_type, "exit")
+        finally:
+            session.close()
 
     def test_preview_publisher_writes_bounded_local_jpeg(self):
         output_directory = Path(self.tempdir.name) / "previews"

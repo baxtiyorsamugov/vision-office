@@ -82,6 +82,10 @@ local matching cache from `/persons/sync`, sends `entry` and `unknown` events th
 an on-disk outbox, and disables local registration. The first synchronization happens
 after the recognition worker starts. Review its status on the **Registration** page.
 
+The **Registration** page also has an optional **Local employee** form. These profiles
+and their attendance remain only in the device's PostgreSQL database; their events are
+never sent to ERP. They are matched alongside the synchronized ERP catalog.
+
 If the current ERP `persons/sync` endpoint does not provide names and official photo
 URLs, use the controlled one-time catalog bootstrap documented in the
 [PostgreSQL runbook](docs/POSTGRESQL_RUNBOOK.md#controlled-erp-catalog-bootstrap).
