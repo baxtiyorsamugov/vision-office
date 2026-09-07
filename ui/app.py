@@ -233,6 +233,66 @@ def photo_html(employee):
     return f'<div class="employee-fallback">{html.escape(initials)}</div>'
 
 
+def profile_photo_path(photo_path):
+    """Resolve a database photo path without exposing external ERP URLs to the UI."""
+    path = PROJECT_ROOT / (photo_path or "")
+    return path if path.is_file() else None
+
+
+def render_profile_header(name, source, profile_id, photo_path, role, status, detail):
+    """Render an unframed employee detail header shared by both catalogs."""
+    image_col, info_col = st.columns([1, 4], gap="medium", vertical_alignment="center")
+    with image_col:
+        image = profile_photo_path(photo_path)
+        if image:
+            st.image(str(image), width=118)
+        else:
+            initials = "".join(part[0] for part in name.split()[:2]).upper() or "VO"
+            st.markdown(f'<div class="employee-fallback">{html.escape(initials)}</div>', unsafe_allow_html=True)
+    with info_col:
+        st.subheader(display_name(name))
+        st.caption(f"{source} · {profile_id}")
+        first, second, third = st.columns(3)
+        first.metric("Роль", role)
+        second.metric("Шаблон", status)
+        third.metric("Фото", detail)
+
+
+def render_event_history(events, empty_message):
+    st.markdown("<hr class='section-rule'>", unsafe_allow_html=True)
+    st.subheader("Последняя активность")
+    if not events:
+        st.caption(empty_message)
+        return
+    st.dataframe(
+        pd.DataFrame([{
+            "Дата и время": event.created_at.strftime("%d.%m.%Y %H:%M:%S"),
+            "Камера": event.camera_id,
+            "Событие": event.event_type,
+            "Уверенность": f"{event.confidence:.0%}" if event.confidence is not None else "—",
+        } for event in events]),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+
+def render_local_attendance_history(attendance):
+    st.markdown("<hr class='section-rule'>", unsafe_allow_html=True)
+    st.subheader("Локальная посещаемость")
+    if not attendance:
+        st.caption("Локальных записей посещаемости пока нет.")
+        return
+    st.dataframe(
+        pd.DataFrame([{
+            "Дата": item.timestamp.strftime("%d.%m.%Y"),
+            "Время": item.timestamp.strftime("%H:%M:%S"),
+            "Событие": item.event_type or "entry",
+        } for item in attendance]),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+
 def display_name(name):
     return name[:-4] if name.lower().endswith(".jpg") else name
 
@@ -486,36 +546,93 @@ def render_people():
         first.metric("Сотрудники ERP", len(people))
         second.metric("Локальные сотрудники", len(local_employees))
         third.metric("ERP готовы к распознаванию", ready_count)
-        st.subheader("Каталог ERP")
-        if people:
-            st.caption("Основной каталог поступает из ERP. Дополнительные локальные фото добавляются на вкладке «Регистрация» и не изменяют ERP.")
-            st.dataframe(
-                pd.DataFrame([{
-                    "ФИО": display_name(person.fio or f"{person.person_type} {person.id[:8]}"),
-                    "Тип": person.person_type,
-                    "Распознавание": status_names.get(person.embedding_status, person.embedding_status),
-                    "Доп. фото": photo_counts.get(person.id, 0),
-                } for person in people]),
-                use_container_width=True,
-                hide_index=True,
-            )
-        else:
-            st.info("Каталог ERP ещё не загружен в локальный кэш.")
-        st.markdown("<hr class='section-rule'>", unsafe_allow_html=True)
-        st.subheader("Локальная база")
-        if local_employees:
-            st.dataframe(
-                pd.DataFrame([{
-                    "ФИО": display_name(employee.full_name),
-                    "Роль": employee.role or "Не указана",
-                    "Шаблон": "Готов" if employee.face_embeddings else "Нет",
-                    "Локальных посещений": local_event_counts.get(employee.id, 0),
-                } for employee in local_employees]),
-                use_container_width=True,
-                hide_index=True,
-            )
-        else:
-            st.caption("Локальных сотрудников пока нет. Их можно добавить на вкладке «Регистрация».")
+        erp_tab, local_tab = st.tabs([f"ERP · {len(people)}", f"Локальная база · {len(local_employees)}"])
+        with erp_tab:
+            if not people:
+                st.info("Каталог ERP ещё не загружен в локальный кэш.")
+            else:
+                st.caption("Основной каталог поступает из ERP. Локальные дополнительные фото не изменяют карточки ERP.")
+                search = st.text_input("Поиск в ERP", placeholder="Имя или тип", key="erp_people_search")
+                search_value = search.strip().casefold()
+                filtered_people = [person for person in people if not search_value or search_value in (person.fio or "").casefold() or search_value in person.person_type.casefold()]
+                st.dataframe(
+                    pd.DataFrame([{
+                        "ФИО": display_name(person.fio or f"{person.person_type} {person.id[:8]}"),
+                        "Тип": person.person_type,
+                        "Шаблон": status_names.get(person.embedding_status, person.embedding_status),
+                        "Доп. фото": photo_counts.get(person.id, 0),
+                    } for person in filtered_people]),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+                if filtered_people:
+                    options = {f"{display_name(person.fio or 'Без имени')} · {person.id[:8]}": person for person in filtered_people}
+                    selected_label = st.selectbox("Открыть профиль ERP", list(options), key="erp_people_detail")
+                    person = options[selected_label]
+                    session = Session()
+                    try:
+                        events = session.query(RecognitionEvent).filter(
+                            RecognitionEvent.person_id == person.id
+                        ).order_by(RecognitionEvent.created_at.desc()).limit(12).all()
+                    finally:
+                        session.close()
+                    render_profile_header(
+                        person.fio or f"{person.person_type} {person.id[:8]}",
+                        "ERP-каталог",
+                        f"ERP {person.id[:8]}",
+                        person.photo_path,
+                        person.person_type,
+                        status_names.get(person.embedding_status, person.embedding_status),
+                        f"основное + {photo_counts.get(person.id, 0)} доп.",
+                    )
+                    render_event_history(events, "У этого ERP-сотрудника пока нет локальных событий распознавания.")
+                else:
+                    st.caption("Поиск не нашёл сотрудников ERP.")
+        with local_tab:
+            if not local_employees:
+                st.caption("Локальных сотрудников пока нет. Их можно добавить на вкладке «Регистрация».")
+            else:
+                st.caption("Эти профили и их посещаемость остаются на устройстве и не передаются в ERP.")
+                search = st.text_input("Поиск в локальной базе", placeholder="Имя или роль", key="local_people_search")
+                search_value = search.strip().casefold()
+                filtered_employees = [employee for employee in local_employees if not search_value or search_value in employee.full_name.casefold() or search_value in (employee.role or "").casefold()]
+                st.dataframe(
+                    pd.DataFrame([{
+                        "ФИО": display_name(employee.full_name),
+                        "Роль": employee.role or "Не указана",
+                        "Шаблон": "Готов" if employee.face_embeddings else "Нет",
+                        "Посещений": local_event_counts.get(employee.id, 0),
+                    } for employee in filtered_employees]),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+                if filtered_employees:
+                    options = {f"{display_name(employee.full_name)} · #{employee.id:04d}": employee for employee in filtered_employees}
+                    selected_label = st.selectbox("Открыть локальный профиль", list(options), key="local_people_detail")
+                    employee = options[selected_label]
+                    session = Session()
+                    try:
+                        attendance = session.query(Attendance).filter(
+                            Attendance.employee_id == employee.id
+                        ).order_by(Attendance.timestamp.desc()).limit(12).all()
+                        events = session.query(RecognitionEvent).filter(
+                            RecognitionEvent.person_id == f"local:{employee.id}"
+                        ).order_by(RecognitionEvent.created_at.desc()).limit(12).all()
+                    finally:
+                        session.close()
+                    render_profile_header(
+                        employee.full_name,
+                        "Локальная PostgreSQL",
+                        f"Профиль #{employee.id:04d}",
+                        employee.photo_path,
+                        employee.role or "Не указана",
+                        "Готов" if employee.face_embeddings else "Нет",
+                        "локальное",
+                    )
+                    render_local_attendance_history(attendance)
+                    render_event_history(events, "Событий камеры для этого локального профиля пока нет.")
+                else:
+                    st.caption("Поиск не нашёл локальных сотрудников.")
         return
     session = Session()
     try:
