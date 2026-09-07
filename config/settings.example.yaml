@@ -19,6 +19,11 @@ ai:
   face_detection_imgsz: 960
   # Overlay refresh rate. The detector keeps only the newest camera frame.
   face_detection_fps: 20
+  # Local browser monitor uses the already-decoded camera frame. It never opens
+  # a second RTSP connection and discards stale preview frames under load.
+  monitor_preview_fps: 4
+  monitor_preview_width: 960
+  monitor_preview_jpeg_quality: 70
 
 database:
   # Docker Compose overrides this with its local PostgreSQL service.

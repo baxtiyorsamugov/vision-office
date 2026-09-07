@@ -244,7 +244,13 @@ def render_control_center():
         with st.container(border=True):
             st.markdown("<p class='panel-title'>Основная камера</p><p class='panel-note'>RTSP-поток с записью присутствия</p><br>", unsafe_allow_html=True)
             if managed_runtime():
-                st.info("Контейнер vision-worker управляет камерой через Docker Compose.")
+                st.success("Контейнер vision-worker управляет камерой через Docker Compose.")
+                st.link_button(
+                    "Открыть монитор камер",
+                    f"{api_public_url()}/monitor",
+                    use_container_width=True,
+                )
+                st.caption("Монитор читает локальные preview-кадры и не создаёт второе RTSP-подключение.")
             elif live_running:
                 st.success("Поток запущен")
                 if st.button("Остановить камеру", key="stop_live", type="secondary", use_container_width=True):

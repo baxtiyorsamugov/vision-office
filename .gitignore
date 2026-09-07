@@ -25,6 +25,7 @@ data/health_status.json
 data/health_status.tmp
 data/events/
 data/persons/
+data/previews/
 
 # Исключаем видеофайлы ВЕЗДЕ в проекте
 *.mp4

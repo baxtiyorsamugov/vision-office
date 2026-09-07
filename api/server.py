@@ -9,6 +9,7 @@ from typing import Generator
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, text
 from sqlalchemy.orm import Session, sessionmaker
@@ -17,6 +18,8 @@ from database.manager import get_engine
 from database.migrations import run_migrations
 from database.models import Attendance, Employee, HealthIncident, RecognitionEvent
 from core.performance import PROJECT_ROOT, read_runtime_status
+from core.preview import preview_path
+from core.config import ConfigurationError, load_app_settings
 
 
 engine = get_engine()
@@ -136,6 +139,18 @@ def require_api_key(x_api_key: str | None = Header(default=None)) -> None:
         )
 
 
+def monitor_camera_statuses() -> list[dict[str, object]]:
+    """Return configured cameras only, ignoring stale runtime files from tests."""
+    runtime = read_runtime_status() or {}
+    statuses = runtime.get("cameras") or ([runtime] if runtime.get("camera_id") else [])
+    by_id = {str(item.get("camera_id")): item for item in statuses if item.get("camera_id")}
+    try:
+        configured_ids = [camera.id for camera in load_app_settings().cameras if camera.is_active]
+    except ConfigurationError:
+        configured_ids = list(by_id)
+    return [by_id[camera_id] for camera_id in configured_ids if camera_id in by_id]
+
+
 @app.get("/", tags=["service"])
 def root() -> dict[str, str]:
     return {"service": "Vision Office Integration API", "docs": "/docs"}
@@ -155,6 +170,55 @@ def runtime_status(_: None = Depends(require_api_key)) -> dict[str, object]:
     except (OSError, json.JSONDecodeError):
         health_status = None
     return {"runtime": read_runtime_status(), "health": health_status}
+
+
+@app.get("/api/v1/monitor/status", tags=["monitor"])
+def monitor_status() -> dict[str, object]:
+    """Local monitor status. Docker exposes the API only on 127.0.0.1."""
+    cameras = monitor_camera_statuses()
+    return {"running": any(bool(camera.get("running")) for camera in cameras), "cameras": cameras}
+
+
+@app.get("/api/v1/cameras/{camera_id}/preview.jpg", tags=["monitor"])
+def camera_preview(camera_id: str) -> FileResponse:
+    """Serve the worker's cached JPEG; this endpoint never touches RTSP."""
+    if camera_id not in {str(camera.get("camera_id")) for camera in monitor_camera_statuses()}:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Camera preview is not available")
+    path = preview_path(camera_id)
+    if not path.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Preview frame is not ready")
+    return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "no-store, max-age=0"})
+
+
+@app.get("/monitor", response_class=HTMLResponse, include_in_schema=False)
+def monitor_page() -> str:
+    """Standalone browser monitor backed only by cached local JPEG files."""
+    return """<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Vision Office - Monitor</title>
+<style>
+:root{color-scheme:dark;--bg:#111517;--surface:#1a2023;--line:#2c373b;--text:#f1f5f3;--muted:#a2aca8;--green:#29b777;--red:#ec6a5c}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px Inter,Segoe UI,Arial,sans-serif}
+header{height:64px;padding:0 24px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);background:#151b1e}
+.brand{font-weight:700;font-size:17px}.brand b{display:inline-grid;place-items:center;width:28px;height:28px;margin-right:9px;border-radius:50%;background:var(--green);font-size:10px}.hint{color:var(--muted);font-size:12px}
+main{padding:20px;display:grid;grid-template-columns:repeat(auto-fit,minmax(440px,1fr));gap:16px}.camera{min-width:0;background:var(--surface);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.camera-head{height:52px;padding:0 16px;display:flex;align-items:center;justify-content:space-between;gap:12px}.name{font-weight:650}.meta{color:var(--muted);font-size:12px;white-space:nowrap}.state{display:inline-flex;align-items:center;gap:7px}.dot{width:8px;height:8px;border-radius:50%;background:var(--red)}.online .dot{background:var(--green)}
+.frame{display:block;width:100%;aspect-ratio:16/9;object-fit:contain;background:#080a0b}.empty{grid-column:1/-1;border:1px dashed var(--line);border-radius:8px;padding:44px;text-align:center;color:var(--muted)}
+@media(max-width:520px){header{padding:0 14px}.hint{display:none}main{padding:10px;grid-template-columns:1fr}.camera{border-radius:6px}}
+</style></head><body>
+<header><div class="brand"><b>VO</b>Vision Office Monitor</div><div class="hint">Локальный preview: RTSP подключён только к worker</div></header>
+<main id="cameras"><div class="empty">Ожидаем кадры от камеры...</div></main>
+<script>
+const root=document.getElementById('cameras'); const cards=new Map();
+function build(camera){const card=document.createElement('section');card.className='camera';card.id='camera-'+camera.camera_id;
+card.innerHTML='<div class="camera-head"><div><div class="name"></div><div class="meta"></div></div><div class="state"><span class="dot"></span><span class="state-text"></span></div></div><img class="frame" alt="Кадр камеры">';return card}
+function update(camera){let card=cards.get(camera.camera_id);if(!card){card=build(camera);cards.set(camera.camera_id,card);root.querySelector('.empty')?.remove();root.appendChild(card)}
+card.querySelector('.name').textContent=camera.camera_name||camera.camera_id;card.querySelector('.meta').textContent='Захват '+(camera.capture_fps??0)+' FPS · Детекция '+(camera.detection_fps??0)+' FPS';
+const online=camera.running&&camera.stream_status==='connected';card.querySelector('.state').classList.toggle('online',online);card.querySelector('.state-text').textContent=online?'В сети':'Переподключение';
+const image=card.querySelector('img');image.src='/api/v1/cameras/'+encodeURIComponent(camera.camera_id)+'/preview.jpg?t='+Date.now()}
+async function refresh(){try{const response=await fetch('/api/v1/monitor/status',{cache:'no-store'});if(!response.ok)throw new Error();const data=await response.json();const ids=new Set((data.cameras||[]).map(camera=>camera.camera_id));for(const [id,card] of cards){if(!ids.has(id)){card.remove();cards.delete(id)}}
+if(!ids.size&&!root.querySelector('.empty'))root.innerHTML='<div class="empty">Нет активных камер или их статус ещё не опубликован.</div>';(data.cameras||[]).forEach(update)}catch(_error){}finally{setTimeout(refresh,250)}}refresh();
+</script></body></html>"""
 
 
 @app.get("/api/v1/employees", response_model=PaginatedEmployees, tags=["employees"])

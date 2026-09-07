@@ -56,6 +56,8 @@ docker compose ps
 Open http://127.0.0.1:8501. The default container image is a stable CPU profile;
 the native Windows install remains the validated GPU path. See the [Docker runbook](docs/DOCKER_RUNBOOK.md) before first launch.
 
+For a separate low-impact local camera window, open http://127.0.0.1:8000/monitor. It displays bounded worker-generated preview frames and never opens a second RTSP connection.
+
 ## Before first launch
 
 Create `config/settings.yaml` from `config/settings.example.yaml` and enter the RTSP camera address and credentials. Do not commit the local settings file, database, face photos, test videos, model weights, or generated archives.

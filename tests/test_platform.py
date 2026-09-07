@@ -1,9 +1,11 @@
 import tempfile
+import time
 import unittest
 import os
 from pathlib import Path
 from unittest.mock import patch
 
+import cv2
 import numpy as np
 from sqlalchemy import create_engine, inspect
 
@@ -13,6 +15,7 @@ from core.events import RecognitionEventStore
 import core.logging_setup as logging_setup
 from core.health import HealthChecker, HealthSettings
 from core import performance
+from core.preview import CameraPreviewPublisher, preview_path
 from core.video.streamer import safe_source_label
 from database.models import HealthIncident
 from database.manager import database_url
@@ -58,6 +61,31 @@ class PlatformTests(unittest.TestCase):
         )
         self.assertIsNotNone(first)
         self.assertIsNone(second)
+
+    def test_preview_publisher_writes_bounded_local_jpeg(self):
+        output_directory = Path(self.tempdir.name) / "previews"
+        publisher = CameraPreviewPublisher(
+            "entry / main",
+            max_fps=8,
+            max_width=320,
+            jpeg_quality=70,
+            output_directory=output_directory,
+        ).start()
+        try:
+            started = time.monotonic()
+            publisher.submit(np.zeros((240, 640, 3), dtype=np.uint8))
+            self.assertLess(time.monotonic() - started, 0.1)
+            target = preview_path("entry / main", output_directory)
+            for _ in range(30):
+                if target.is_file():
+                    break
+                time.sleep(0.02)
+            self.assertTrue(target.is_file())
+            image = cv2.imread(str(target))
+            self.assertEqual(image.shape[1], 320)
+            self.assertTrue(publisher.stats()["preview_available"])
+        finally:
+            publisher.stop()
 
     def test_config_rejects_duplicate_camera_ids(self):
         settings = Path(self.tempdir.name) / "settings.yaml"

@@ -18,6 +18,7 @@ from core.hr import HRManager
 from core.logging_setup import configure_logging
 from core.overlay import draw_detection_label
 from core.performance import write_camera_runtime_status
+from core.preview import CameraPreviewPublisher
 from core.video.streamer import VideoStream
 from database.manager import init_db
 
@@ -44,6 +45,12 @@ def run_camera(camera: CameraSettings, ai_settings: dict, log_level: str = "INFO
     edge_enabled = load_edge_settings().enabled
     hr = None if edge_enabled else HRManager(cooldown_minutes=1)
     stream = VideoStream(camera.rtsp_url).start()
+    preview = CameraPreviewPublisher(
+        camera.id,
+        max_fps=ai_settings.get("monitor_preview_fps", 4),
+        max_width=ai_settings.get("monitor_preview_width", 960),
+        jpeg_quality=ai_settings.get("monitor_preview_jpeg_quality", 70),
+    ).start()
     window_name = f"Smart Vision AI - {camera.name}"
     headless = headless_mode()
     last_status_update = 0.0
@@ -58,6 +65,7 @@ def run_camera(camera: CameraSettings, ai_settings: dict, log_level: str = "INFO
                     "location": camera.location,
                     "onnx_providers": ort.get_available_providers(),
                     **stream.stats(),
+                    **preview.stats(),
                     **ai.status_snapshot(),
                 })
                 last_status_update = time.monotonic()
@@ -74,6 +82,10 @@ def run_camera(camera: CameraSettings, ai_settings: dict, log_level: str = "INFO
                     hr.register_presence(name)
                 frame = draw_detection_label(frame, (x1, y1, x2, y2), name)
 
+            # Preview encoding runs in a separate one-slot mailbox. It never
+            # starts another RTSP reader and drops frames instead of slowing AI.
+            preview.submit(frame)
+
             if not headless:
                 preview = cv2.resize(frame, (1280, 720), interpolation=cv2.INTER_AREA)
                 cv2.imshow(window_name, preview)
@@ -83,8 +95,14 @@ def run_camera(camera: CameraSettings, ai_settings: dict, log_level: str = "INFO
         logger.exception("Camera worker failed camera_id=%s", camera.id)
         raise
     finally:
-        write_camera_runtime_status(camera.id, {"running": False, "camera_name": camera.name, **stream.stats()})
+        write_camera_runtime_status(camera.id, {
+            "running": False,
+            "camera_name": camera.name,
+            **stream.stats(),
+            **preview.stats(),
+        })
         stream.stop()
+        preview.stop()
         ai.stop()
         if not headless:
             cv2.destroyWindow(window_name)

@@ -70,6 +70,15 @@ Expected result:
 
 The ports bind only to `127.0.0.1` by default. Do not expose the API to the LAN until an API key and allowed CORS origins are configured.
 
+## Separate Camera Monitor
+
+Open `http://127.0.0.1:8000/monitor` in a separate browser window or on a second screen. The monitor does not connect to RTSP. The existing `vision-worker` publishes a bounded local JPEG preview (four frames per second by default), and the browser reads that cached file through the local API.
+
+- Recognition remains the only RTSP consumer.
+- Preview encoding runs in a background one-slot queue; when the device is busy, obsolete preview frames are discarded instead of delaying capture or AI.
+- The monitor is intentionally local-only because the API port is bound to `127.0.0.1`. Do not expose it to the LAN without an authentication and network-access review.
+- Tune `ai.monitor_preview_fps`, `ai.monitor_preview_width`, and `ai.monitor_preview_jpeg_quality` in the device `config/settings.yaml` only after measuring the target hardware. Keep the default bounded values for stable CPU installations.
+
 ## Runtime Operations
 
 ```powershell
