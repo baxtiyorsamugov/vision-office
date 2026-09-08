@@ -220,16 +220,17 @@ def monitor_page() -> str:
 <html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Vision Office - Monitor</title>
 <style>
-:root{color-scheme:dark;--bg:#111517;--surface:#1a2023;--line:#2c373b;--text:#f1f5f3;--muted:#a2aca8;--green:#29b777;--red:#ec6a5c}
+:root{color-scheme:light;--bg:#f3f4f3;--surface:#ffffff;--line:#e6e9e7;--text:#191e1b;--muted:#737b76;--green:#108455;--red:#b44e58}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px Inter,Segoe UI,Arial,sans-serif}
-header{height:64px;padding:0 24px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);background:#151b1e}
+header{min-height:64px;margin:20px 24px 0;padding:12px 24px;display:flex;align-items:center;justify-content:space-between;gap:16px;border-radius:40px;background:var(--surface)}
 .brand{font-weight:700;font-size:17px}.brand b{display:inline-grid;place-items:center;width:28px;height:28px;margin-right:9px;border-radius:50%;background:var(--green);font-size:10px}.hint{color:var(--muted);font-size:12px}
-main{padding:20px;display:grid;grid-template-columns:repeat(auto-fit,minmax(440px,1fr));gap:16px}.camera{min-width:0;background:var(--surface);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+main{padding:24px;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(440px,100%),1fr));gap:20px}.camera{min-width:0;background:var(--surface);border:1px solid var(--line);border-radius:24px;overflow:hidden}
 .camera-head{height:52px;padding:0 16px;display:flex;align-items:center;justify-content:space-between;gap:12px}.name{font-weight:650}.meta{color:var(--muted);font-size:12px;white-space:nowrap}.state{display:inline-flex;align-items:center;gap:7px}.dot{width:8px;height:8px;border-radius:50%;background:var(--red)}.online .dot{background:var(--green)}
 .frame{display:block;width:100%;aspect-ratio:16/9;object-fit:contain;background:#080a0b}.empty{grid-column:1/-1;border:1px dashed var(--line);border-radius:8px;padding:44px;text-align:center;color:var(--muted)}
-@media(max-width:520px){header{padding:0 14px}.hint{display:none}main{padding:10px;grid-template-columns:1fr}.camera{border-radius:6px}}
+header a{color:var(--green);text-decoration:none;font-weight:600}.brand b{color:white}.camera-head{height:auto;min-height:64px;flex-wrap:wrap;padding:14px 20px}.state{font-size:12px}.name{overflow-wrap:anywhere}
+@media(max-width:520px){header{padding:12px 16px;margin:10px;border-radius:20px;flex-wrap:wrap}.hint{display:none}main{padding:10px;grid-template-columns:1fr}.camera{border-radius:20px}}
 </style></head><body>
-<header><div class="brand"><b>VO</b>Vision Office Monitor</div><div class="hint">Локальный preview: RTSP подключён только к worker</div></header>
+<header><div class="brand"><b>VO</b>Vision Office</div><div class="hint">Монитор камер</div><a href="/docs" title="Документация API">API</a></header>
 <main id="cameras"><div class="empty">Ожидаем кадры от камеры...</div></main>
 <script>
 const root=document.getElementById('cameras'); const cards=new Map();

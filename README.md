@@ -11,6 +11,7 @@ Vision Office is a local face-recognition and attendance platform for RTSP camer
 - [Docker deployment runbook](docs/DOCKER_RUNBOOK.md)
 - [Local PostgreSQL, hourly ERP sync and reference-photo runbook](docs/POSTGRESQL_RUNBOOK.md)
 - [Unknown visitors catalog runbook](docs/UNKNOWN_VISITORS_RUNBOOK.md)
+- [UI design system](docs/UI_DESIGN_SYSTEM.md)
 
 The roadmap is updated with each verified stage; do not treat a task as complete until its documented checks pass.
 

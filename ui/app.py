@@ -26,6 +26,7 @@ from database.models import AccessLogOutbox, Attendance, Base, EdgeSyncState, Em
 from core.edge.config import load_edge_settings
 from core.local_time import as_utc, format_local, local_day_bounds_utc, local_now, local_today, to_local
 from core.performance import read_runtime_status
+from core.preview import preview_path
 from core.unknown_visitors import UnknownVisitorService
 
 
@@ -33,68 +34,8 @@ st.set_page_config(page_title="Vision Office", page_icon="VO", layout="wide", in
 
 
 def apply_theme():
-    st.markdown(
-        """
-        <style>
-        :root { --ink:#171a1f; --muted:#777b82; --line:#e9e9e9; --surface:#ffffff; --canvas:#e4e3e7; --green:#138b5c; --green-dark:#0d714b; --green-soft:#e8f5ee; --warning:#ad7500; }
-        #MainMenu, footer, [data-testid="stSidebar"], [data-testid="stSidebarCollapsedControl"] { display:none!important; }
-        [data-testid="stAppDeployButton"] { display:none; }
-        .stApp { background:var(--canvas); color:var(--ink); }
-        [data-testid="stHeader"] { height:0; background:transparent; }
-        [data-testid="stMain"] { padding:0 18px 34px; }
-        .block-container { max-width:1320px; margin:42px auto 0; padding:20px 26px 32px; background:#f5f5f5; border:1px solid rgba(255,255,255,.9); border-radius:18px; box-shadow:0 18px 42px rgba(25,29,35,.08); }
-        h1,h2,h3 { color:var(--ink)!important; letter-spacing:0!important; }
-        h1 { font-size:30px!important; font-weight:650!important; line-height:1.18!important; margin:30px 0 4px!important; }
-        h2 { font-size:16px!important; font-weight:650!important; line-height:1.35!important; margin:26px 0 10px!important; }
-        h3 { font-size:15px!important; font-weight:650!important; }
-        p,[data-testid="stCaptionContainer"] { color:var(--muted); }
-        [data-testid="stCaptionContainer"] { font-size:13px; }
-        .brand { display:flex; align-items:center; gap:9px; white-space:nowrap; padding-left:4px; }
-        .brand-mark { width:31px; height:31px; display:inline-flex; align-items:center; justify-content:center; background:var(--green); color:#fff; border-radius:50%; font-size:11px; font-weight:800; box-shadow:inset 0 0 0 5px rgba(255,255,255,.18); }
-        .brand-name { color:var(--green); font-size:18px; font-weight:750; }
-        .profile-dot { width:34px; height:34px; display:flex; align-items:center; justify-content:center; margin-left:auto; background:#1f2b32; color:#fff; border:3px solid #fff; border-radius:50%; font-size:11px; font-weight:700; box-shadow:0 2px 8px rgba(20,28,35,.12); }
-        [data-testid="stVerticalBlockBorderWrapper"] { background:var(--surface); border:1px solid var(--line)!important; border-radius:18px!important; box-shadow:none!important; }
-        [data-testid="stVerticalBlockBorderWrapper"] > div { padding:18px!important; }
-        [data-testid="stRadio"] > div { display:flex; align-items:center; justify-content:center; gap:2px; padding:4px; background:#f4f4f4; border-radius:999px; }
-        [data-testid="stRadio"] label { width:auto!important; margin:0!important; padding:8px 12px!important; border-radius:999px!important; color:#53565b!important; font-size:12px!important; font-weight:500!important; white-space:nowrap; }
-        [data-testid="stRadio"] label:has(input:checked) { background:#fff!important; color:var(--ink)!important; box-shadow:0 1px 4px rgba(26,30,35,.08); }
-        [data-testid="stRadio"] label:hover { background:#fff!important; }
-        [data-testid="stRadio"] [data-baseweb="radio"] > div:first-child, [data-testid="stRadio"] input { display:none!important; }
-        [data-testid="stMetric"] { min-height:108px; padding:18px!important; background:var(--surface); border:1px solid var(--line); border-radius:18px; }
-        [data-testid="stMetricLabel"] { color:var(--muted); font-size:12px; font-weight:500; }
-        [data-testid="stMetricValue"] { color:var(--ink); font-size:26px; font-weight:650; line-height:1.1; }
-        [data-testid="stMetricDelta"] { color:var(--green)!important; font-size:12px; font-weight:600; }
-        .status-strip { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:16px 18px; margin:16px 0 18px; border:1px solid var(--line); border-radius:18px; background:var(--surface); }
-        .status-label { color:var(--muted); font-size:12px; margin-bottom:3px; }.status-value { color:var(--ink); font-weight:650; font-size:15px; }
-        .badge { display:inline-flex; align-items:center; gap:7px; color:#50545a; font-size:12px; font-weight:600; }.dot { width:8px; height:8px; border-radius:50%; display:inline-block; }.dot-online { background:var(--green); box-shadow:0 0 0 4px var(--green-soft); }.dot-idle { background:var(--warning); }
-        .panel-title { color:var(--ink); font-weight:650; font-size:15px; margin:0 0 4px; }.panel-note { color:var(--muted); font-size:12px; line-height:1.5; margin:0; }
-        .stButton > button, .stLinkButton > a { min-height:40px; border-radius:999px; border:1px solid var(--green); background:var(--green); color:#fff; font-size:13px; font-weight:650; letter-spacing:0; transition:all .16s ease; }
-        .stButton > button:hover, .stLinkButton > a:hover { background:var(--green-dark); border-color:var(--green-dark); color:#fff; transform:translateY(-1px); }
-        .stButton > button[kind="secondary"] { background:#fff; color:var(--ink); border-color:var(--line); }.stButton > button[kind="secondary"]:hover { background:#f5f5f5; border-color:#d8d8d8; color:var(--ink); }
-        .stTextInput input,.stSelectbox [data-baseweb="select"] > div,.stDateInput input,[data-testid="stFileUploaderDropzone"] { min-height:42px!important; background:#fff!important; border:1px solid var(--line)!important; border-radius:12px!important; box-shadow:none!important; }
-        [data-testid="stDataFrame"] { border:1px solid var(--line); border-radius:10px; overflow:hidden; background:#fff; }
-        [data-testid="stDataFrame"] [role="gridcell"] { font-size:13px!important; }
-        [data-testid="stDataFrame"] [role="columnheader"] { background:#f8faf9!important; color:#626a72!important; font-size:11px!important; font-weight:700!important; letter-spacing:0!important; text-transform:uppercase; }
-        .directory-summary { color:var(--muted); font-size:12px; padding:8px 0 10px; }
-        .employee-head { display:flex; align-items:center; gap:16px; padding:5px 3px; }.employee-photo,.employee-fallback { width:82px; height:82px; border-radius:50%; object-fit:cover; border:4px solid #fff; box-shadow:0 3px 12px rgba(28,33,38,.1); }.employee-fallback { background:var(--green-soft); color:var(--green); display:flex; align-items:center; justify-content:center; font-size:25px; font-weight:700; }.employee-name { color:var(--ink); font-size:23px; font-weight:650; margin-bottom:3px; }.employee-role { color:var(--green); font-size:13px; font-weight:650; margin-bottom:7px; }.employee-meta { color:var(--muted); font-size:13px; }
-        .empty-state { padding:48px 18px; text-align:center; color:var(--muted); border:1px dashed #d9d9d9; border-radius:18px; background:#fff; }.section-rule { border:0; border-top:1px solid var(--line); margin:26px 0; }
-        .activity-meta { color:var(--muted); font-size:12px; text-align:right; line-height:1.5; }
-        .stButton > button:focus-visible, [data-baseweb="select"] *:focus-visible { outline:3px solid rgba(19,139,92,.22)!important; outline-offset:2px; }
-        [data-testid="stForm"] { padding:20px; background:var(--surface); border:1px solid var(--line); border-radius:18px; }
-        [data-testid="stAlert"] { border-radius:14px; }
-        @media (max-width: 860px) {
-          [data-testid="stMain"] { padding:0 8px 20px; }
-          .block-container { margin-top:8px; padding:12px; border-radius:14px; }
-          .brand-name { font-size:16px; }
-          [data-testid="stRadio"] > div { justify-content:flex-start; overflow-x:auto; }
-          [data-testid="stRadio"] label { padding:7px 10px!important; }
-          h1 { font-size:26px!important; margin-top:22px!important; }
-          .status-strip { flex-wrap:wrap; border-radius:14px; }
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+    css = (PROJECT_ROOT / "ui" / "theme.css").read_text(encoding="utf-8")
+    st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
 
 
 apply_theme()
@@ -171,7 +112,7 @@ def render_local_employee_form(form_key):
             custom_role = st.text_input("Название роли", key=f"{form_key}_custom_role") if role == "Другая" else ""
         with right:
             uploaded_file = st.file_uploader("Фотография", type=["jpg", "jpeg", "png"], key=f"{form_key}_photo")
-        submitted = st.form_submit_button("Добавить локально", use_container_width=True)
+        submitted = st.form_submit_button("Добавить локально", type="primary", icon=":material/person_add:", use_container_width=True)
     if not submitted:
         return
     if not uploaded_file:
@@ -292,7 +233,8 @@ def render_directory_table(rows, key):
         use_container_width=True,
         hide_index=True,
         column_order=column_order,
-        height=min(132 + len(page_rows) * 40, 540),
+        height=min(52 + len(page_rows) * 48, 540),
+        row_height=48,
         column_config={
             "№": st.column_config.NumberColumn("№", width="small", format="%d"),
             "Фото": st.column_config.ImageColumn("Фото", width="small"),
@@ -300,8 +242,8 @@ def render_directory_table(rows, key):
             "Роль / тип": st.column_config.TextColumn("Роль / тип", width="medium"),
             "FaceID": st.column_config.TextColumn("FaceID", width="medium"),
             "Доп. фото": st.column_config.NumberColumn("Доп. фото", width="small", format="%d"),
-            "Посещений": st.column_config.NumberColumn("Посещений", width="small", format="%d"),
-            "Наблюдения": st.column_config.NumberColumn("Наблюдения", width="small", format="%d"),
+            "Посещений": st.column_config.NumberColumn("Посещений", width="medium", format="%d"),
+            "Наблюдения": st.column_config.NumberColumn("Наблюдения", width="medium", format="%d"),
             "Статус": st.column_config.TextColumn("Статус", width="medium"),
             "Первая встреча": st.column_config.TextColumn("Первая встреча", width="medium"),
             "Последняя встреча": st.column_config.TextColumn("Последняя встреча", width="medium"),
@@ -313,22 +255,24 @@ def render_directory_table(rows, key):
 
 
 def render_profile_header(name, source, profile_id, photo_path, role, status, detail):
-    """Render an unframed employee detail header shared by both catalogs."""
-    image_col, info_col = st.columns([1, 4], gap="medium", vertical_alignment="center")
-    with image_col:
-        image = profile_photo_path(photo_path)
-        if image:
-            st.image(str(image), width=118)
-        else:
-            initials = "".join(part[0] for part in name.split()[:2]).upper() or "VO"
-            st.markdown(f'<div class="employee-fallback">{html.escape(initials)}</div>', unsafe_allow_html=True)
-    with info_col:
-        st.subheader(display_name(name))
-        st.caption(f"{source} · {profile_id}")
-        first, second, third = st.columns(3)
-        first.metric("Роль", role)
-        second.metric("Шаблон", status)
-        third.metric("Фото", detail)
+    """Shared, unframed profile heading for every employee catalog."""
+    image = profile_photo_data_uri(photo_path)
+    initials = "".join(part[0] for part in name.split()[:2]).upper() or "VO"
+    portrait = (
+        f'<img class="profile-portrait" src="{image}" alt="Фото профиля">'
+        if image else f'<div class="employee-fallback">{html.escape(initials)}</div>'
+    )
+    tags = "".join(
+        f'<span class="profile-tag">{html.escape(str(value))}</span>'
+        for value in (role, status, detail)
+    )
+    st.markdown(
+        f'<div class="profile-header">{portrait}<div class="profile-info">'
+        f'<h2>{html.escape(display_name(name))}</h2>'
+        f'<p>{html.escape(source)} · {html.escape(str(profile_id))}</p>'
+        f'<div class="profile-tags">{tags}</div></div></div>',
+        unsafe_allow_html=True,
+    )
 
 
 def render_event_history(events, empty_message):
@@ -379,12 +323,16 @@ def status_badge(running, active_label, idle_label):
 
 
 def render_header(title, subtitle):
-    st.title(title)
-    st.caption(subtitle)
+    st.markdown(
+        f'<div class="page-heading"><div><h1>{html.escape(title)}</h1>'
+        f'<p>{html.escape(subtitle)}</p></div>'
+        f'<span class="date-chip">{local_now().strftime("%d.%m.%Y")} · Asia/Tashkent</span></div>',
+        unsafe_allow_html=True,
+    )
 
 
 def render_navigation():
-    with st.container(border=True):
+    with st.container(key="navigation"):
         left, center, right = st.columns([1.55, 5.6, 0.45], gap="small", vertical_alignment="center")
         with left:
             st.markdown(
@@ -392,28 +340,23 @@ def render_navigation():
                 unsafe_allow_html=True,
             )
         with center:
-            st.markdown('<div class="top-navigation">', unsafe_allow_html=True)
             page = st.radio(
                 "Навигация",
                 ["Панель", "Аналитика", "Сотрудники", "Регистрация", "API"],
                 horizontal=True,
                 label_visibility="collapsed",
             )
-            st.markdown("</div>", unsafe_allow_html=True)
         with right:
             st.markdown('<div class="profile-dot">VO</div>', unsafe_allow_html=True)
     return page
 
 
 def render_control_center():
-    render_header("Операционный центр", "Камеры, распознавание и регистрация присутствия")
+    render_header("Операционный центр", "Обзор присутствия и состояния камер")
     edge_settings = load_edge_settings()
     runtime = read_runtime_status() or {}
     live_running = bool(runtime.get("running")) if managed_runtime() else process_running("live_process")
     demo_running = process_running("demo_process")
-    recognition_status = "Активно" if live_running else "Ожидание"
-    st.markdown(f'''<div class="status-strip"><div><div class="status-label">Распознавание</div><div class="status-value">{recognition_status}</div></div><div>{status_badge(live_running, "RTSP подключён", "RTSP остановлен")}</div><div>{status_badge(demo_running, "Демо запущено", "Демо выключено")}</div><div class="activity-meta">Обновлено<br>{local_now().strftime("%H:%M")}</div></div>''', unsafe_allow_html=True)
-
     session = Session()
     try:
         employee_count = (
@@ -424,63 +367,104 @@ def render_control_center():
         today_count = session.query(Attendance.employee_id).filter(
             Attendance.timestamp >= day_start, Attendance.timestamp < day_end,
         ).distinct().count()
-        event_count = session.query(RecognitionEvent).filter(
+        event_times = session.query(RecognitionEvent.created_at).filter(
             RecognitionEvent.created_at >= day_start, RecognitionEvent.created_at < day_end,
-        ).count()
+        ).all()
         active_incidents = session.query(HealthIncident).filter(HealthIncident.status == "open").count()
     finally:
         session.close()
-    metrics = st.columns(4)
-    metrics[0].metric("Сотрудники", employee_count)
-    metrics[1].metric("Сегодня замечены", today_count)
-    metrics[2].metric("События сегодня", event_count)
-    camera_count = len((read_runtime_status() or {}).get("cameras", [])) or 1
-    metrics[3].metric("Камеры", camera_count, "в работе" if live_running else "ожидание")
-    if active_incidents:
-        st.warning(f"Health Checker: активных инцидентов: {active_incidents}")
 
-    render_performance_panel()
+    cameras = runtime.get("cameras") or ([runtime] if runtime.get("camera_id") else [])
+    connected = sum(camera.get("stream_status") == "connected" for camera in cameras)
+    cards = [
+        ("События сегодня", len(event_times), "Обнаружения на всех камерах", True),
+        ("Сотрудники", employee_count, "Активные ERP и локальные профили", False),
+        ("Сегодня замечены", today_count, "Локальная посещаемость", False),
+        ("Камеры на связи", f"{connected} / {len(cameras)}", "Состояние видеопотоков", False),
+    ]
+    st.markdown('<div class="summary-grid">' + "".join(
+        f'<div class="summary-card{" featured" if featured else ""}">'
+        f'<div class="summary-top">{label}<span class="status-mark"></span></div>'
+        f'<div class="summary-number">{value}</div><div class="summary-note">{note}</div></div>'
+        for label, value, note, featured in cards
+    ) + "</div>", unsafe_allow_html=True)
+    st.markdown(
+        f'<div class="status-strip">{status_badge(live_running, "Распознавание активно", "Распознавание остановлено")}'
+        f'<span class="activity-meta">Обновлено в {local_now().strftime("%H:%M")}</span></div>',
+        unsafe_allow_html=True,
+    )
 
-    st.markdown("<hr class='section-rule'>", unsafe_allow_html=True)
-    left, right = st.columns(2, gap="large")
-    with left:
-        with st.container(border=True):
-            st.markdown("<p class='panel-title'>Основная камера</p><p class='panel-note'>RTSP-поток с записью присутствия</p><br>", unsafe_allow_html=True)
-            if managed_runtime():
-                st.success("Контейнер vision-worker управляет камерой через Docker Compose.")
-                st.link_button(
-                    "Открыть монитор камер",
-                    f"{api_public_url()}/monitor",
-                    use_container_width=True,
-                )
-                st.caption("Монитор читает локальные preview-кадры и не создаёт второе RTSP-подключение.")
-            elif live_running:
-                st.success("Поток запущен")
-                if st.button("Остановить камеру", key="stop_live", type="secondary", use_container_width=True):
-                    stop_process("live_process")
-                    st.rerun()
-            elif st.button("Запустить камеру", key="start_live", type="primary", use_container_width=True):
-                start_process("live_process", "main.py")
+    chart_col, camera_col = st.columns([1.5, 1], gap="medium")
+    with chart_col, st.container(key="activity-chart"):
+        st.markdown('<p class="panel-title">Активность в течение дня</p><p class="panel-note">Обнаружения по часам</p>', unsafe_allow_html=True)
+        hourly = [0] * 24
+        for (timestamp,) in event_times:
+            hourly[to_local(timestamp).hour] += 1
+        current_hour = local_now().hour
+        figure = go.Figure(go.Bar(
+            x=list(range(24)), y=hourly,
+            marker_color=["#108455" if hour == current_hour else "#b6d9c7" for hour in range(24)],
+            hovertemplate="%{x}:00 · %{y} событий<extra></extra>",
+        ))
+        figure.update_layout(
+            height=265, margin=dict(l=0, r=4, t=18, b=0),
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(family="Arial, sans-serif", size=11, color="#737b76"),
+            bargap=0.32, barcornerradius=12,
+            xaxis=dict(tickmode="array", tickvals=list(range(0, 24, 3)),
+                       ticktext=[f"{hour:02d}:00" for hour in range(0, 24, 3)], fixedrange=True, showgrid=False),
+            yaxis=dict(rangemode="tozero", gridcolor="#edf0ed", griddash="dot", fixedrange=True),
+        )
+        st.plotly_chart(figure, use_container_width=True, config={"displayModeBar": False})
+
+    with camera_col, st.container(key="camera-overview"):
+        st.markdown('<p class="panel-title">Камера · обзор</p>', unsafe_allow_html=True)
+        camera = next((item for item in cameras if item.get("stream_status") == "connected"), cameras[0] if cameras else {})
+        path = preview_path(camera.get("camera_id", "camera"))
+        shot = None
+        try:
+            if path.is_file():
+                shot = profile_photo_data_uri(path)
+        except OSError:
+            pass
+        if shot:
+            st.markdown(
+                f'<img class="camera-shot" src="{shot}" alt="Последний сохранённый кадр камеры">'
+                f'<div class="camera-caption">{html.escape(str(camera.get("camera_name") or camera.get("camera_id") or "Камера"))}'
+                f' · Снимок при открытии страницы</div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown('<div class="empty-state">Кадр пока недоступен</div>', unsafe_allow_html=True)
+        if managed_runtime():
+            st.link_button("Открыть монитор", f"{api_public_url()}/monitor", icon=":material/open_in_new:", use_container_width=True)
+        elif live_running:
+            if st.button("Остановить камеру", key="stop_live", icon=":material/stop:", use_container_width=True):
+                stop_process("live_process")
                 st.rerun()
-    with right:
-        with st.container(border=True):
-            st.markdown("<p class='panel-title'>Тестовый контур</p><p class='panel-note'>Проверка распознавания на test.mp4</p><br>", unsafe_allow_html=True)
-            if demo_running:
-                st.info("Демо выполняется")
-                if st.button("Остановить тест", key="stop_demo", type="secondary", use_container_width=True):
-                    stop_process("demo_process")
-                    st.rerun()
-            elif st.button("Запустить тест", key="start_demo", type="secondary", use_container_width=True):
-                start_process("demo_process", "test_video.py")
-                st.rerun()
+        elif st.button("Запустить камеру", key="start_live", icon=":material/play_arrow:", type="primary", use_container_width=True):
+            start_process("live_process", "main.py")
+            st.rerun()
 
-    st.markdown("<hr class='section-rule'>", unsafe_allow_html=True)
     st.subheader("Последние обнаружения")
     recent_events = load_recent_events(limit=8)
     if recent_events.empty:
         st.markdown("<div class='empty-state'>Новых событий пока нет.</div>", unsafe_allow_html=True)
     else:
         st.dataframe(recent_events, use_container_width=True, hide_index=True)
+    if active_incidents:
+        st.warning(f"Мониторинг: открытых инцидентов — {active_incidents}", icon=":material/info:")
+    with st.expander("Производительность и состояние камер", icon=":material/monitoring:"):
+        render_performance_panel()
+    with st.expander("Тестовый контур", icon=":material/science:"):
+        if demo_running:
+            st.info("Тест выполняется")
+            if st.button("Остановить тест", key="stop_demo", icon=":material/stop:", use_container_width=True):
+                stop_process("demo_process")
+                st.rerun()
+        elif st.button("Запустить тест", key="start_demo", icon=":material/play_arrow:", use_container_width=True):
+            start_process("demo_process", "test_video.py")
+            st.rerun()
 
 
 def render_performance_panel():
@@ -549,16 +533,16 @@ def load_recent_events(limit):
         session.close()
     return pd.DataFrame([{
         "ФИО": display_name(row.person_name or "Неизвестный"),
-        "Роль": row.person_type,
+        "Роль": {"unknown": "Неизвестный", "local": "Локальный", "employee": "Сотрудник"}.get(row.person_type, row.person_type),
         "Время": format_local(row.created_at, "%d.%m %H:%M"),
-        "Событие": row.event_type,
+        "Событие": {"entry": "Вход", "exit": "Выход"}.get(row.event_type, row.event_type),
         "Камера": row.camera_id,
     } for row in rows])
 
 
 def render_analytics():
     render_header("Аналитика присутствия", "Сводка входов и дисциплины по выбранной дате")
-    selected_date = st.date_input("Дата", value=local_today(), label_visibility="collapsed")
+    selected_date = st.date_input("Дата", value=local_today(), label_visibility="collapsed", width=240, format="DD.MM.YYYY")
     df = load_attendance(selected_date)
     if df.empty:
         st.markdown("<div class='empty-state'>За выбранную дату событий нет.</div>", unsafe_allow_html=True)
@@ -575,16 +559,16 @@ def render_analytics():
 
     chart_col, status_col = st.columns([2, 1], gap="large")
     hourly = first_events.assign(Час=first_events["Дата и время"].dt.hour).groupby("Час").size().reset_index(name="Количество")
-    with chart_col:
+    with chart_col, st.container(key="analytics-arrivals"):
         st.subheader("Приходы по часам")
-        arrivals = go.Figure(go.Bar(x=hourly["Час"], y=hourly["Количество"], marker_color="#138b5c", hovertemplate="%{y} сотрудника<extra></extra>"))
-        arrivals.update_layout(margin=dict(l=0, r=0, t=12, b=0), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", xaxis=dict(title=None, tickmode="linear", dtick=1, gridcolor="#e8edf2"), yaxis=dict(title=None, rangemode="tozero", gridcolor="#e8edf2"), showlegend=False)
+        arrivals = go.Figure(go.Bar(x=hourly["Час"], y=hourly["Количество"], width=0.65, marker_color="#108455", hovertemplate="%{x}:00 · %{y} сотрудника<extra></extra>"))
+        arrivals.update_layout(height=280, barcornerradius=10, margin=dict(l=0, r=0, t=12, b=0), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font=dict(family="Segoe UI, Arial, sans-serif", size=12, color="#737b76"), xaxis=dict(title=None, range=[-0.5, 23.5], tickmode="linear", dtick=3, gridcolor="#edf0ed"), yaxis=dict(title=None, rangemode="tozero", dtick=1 if hourly["Количество"].max() < 5 else None, gridcolor="#edf0ed"), showlegend=False)
         st.plotly_chart(arrivals, use_container_width=True, config={"displayModeBar": False})
-    with status_col:
+    with status_col, st.container(key="analytics-discipline"):
         st.subheader("Дисциплина")
         status_counts = first_events["Статус"].value_counts()
-        discipline = go.Figure(go.Pie(labels=status_counts.index, values=status_counts.values, hole=.72, marker_colors=["#138b5c" if item == "Вовремя" else "#c65663" for item in status_counts.index], textinfo="none"))
-        discipline.update_layout(margin=dict(l=0, r=0, t=12, b=0), paper_bgcolor="rgba(0,0,0,0)", showlegend=True)
+        discipline = go.Figure(go.Pie(labels=status_counts.index, values=status_counts.values, hole=.78, marker_colors=["#108455" if item == "Вовремя" else "#b44e58" for item in status_counts.index], textinfo="none"))
+        discipline.update_layout(height=280, margin=dict(l=8, r=8, t=12, b=0), font=dict(family="Segoe UI, Arial, sans-serif", size=12, color="#737b76"), legend=dict(orientation="h", x=0.5, xanchor="center", y=-0.05), paper_bgcolor="rgba(0,0,0,0)", showlegend=True)
         st.plotly_chart(discipline, use_container_width=True, config={"displayModeBar": False})
     st.subheader("Первое появление")
     first_events["Время"] = first_events["Дата и время"].dt.strftime("%H:%M")
@@ -955,7 +939,7 @@ def render_edge_status(edge_settings):
 
     sync_action, sync_request_status = st.columns([1, 2], gap="large", vertical_alignment="bottom")
     with sync_action:
-        if st.button("Обновить из ERP", key="request_erp_full_sync", use_container_width=True):
+        if st.button("Обновить из ERP", key="request_erp_full_sync", icon=":material/sync:", use_container_width=True):
             from core.edge.service import EdgeService
 
             try:
@@ -1032,7 +1016,7 @@ def render_developer_api():
 
     actions, endpoint_info = st.columns([1, 2], gap="large")
     with actions:
-        with st.container(border=True):
+        with st.container(key="api-runtime"):
             st.markdown("<p class='panel-title'>Локальный сервер</p><p class='panel-note'>127.0.0.1:8000</p><br>", unsafe_allow_html=True)
             if managed_runtime():
                 st.success("API запущен отдельным контейнером")
