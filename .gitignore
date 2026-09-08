@@ -23,6 +23,7 @@ data/runtime_status_*.json
 data/runtime_status_*.tmp
 data/health_status.json
 data/health_status.tmp
+data/unknown_clusterer_status.json
 data/events/
 data/persons/
 data/previews/

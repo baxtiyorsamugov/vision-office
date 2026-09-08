@@ -22,10 +22,11 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from database.manager import get_engine
 from database.migrations import run_migrations
-from database.models import AccessLogOutbox, Attendance, Base, EdgeSyncState, Employee, HealthIncident, RecognitionEvent, RemotePerson, RemotePersonReferencePhoto
+from database.models import AccessLogOutbox, Attendance, Base, EdgeSyncState, Employee, HealthIncident, RecognitionEvent, RemotePerson, RemotePersonReferencePhoto, UnknownFaceObservation, UnknownVisitor, UnknownVisitorVisit
 from core.edge.config import load_edge_settings
 from core.local_time import as_utc, format_local, local_day_bounds_utc, local_now, local_today, to_local
 from core.performance import read_runtime_status
+from core.unknown_visitors import UnknownVisitorService
 
 
 st.set_page_config(page_title="Vision Office", page_icon="VO", layout="wide", initial_sidebar_state="collapsed")
@@ -283,7 +284,7 @@ def render_directory_table(rows, key):
     page_rows = rows[start:start + page_size]
     table_data = pd.DataFrame(page_rows)
     column_order = [
-        column for column in ["№", "Фото", "Сотрудник", "Роль / тип", "FaceID", "Доп. фото", "Посещений", "Профиль"]
+        column for column in ["№", "Фото", "Сотрудник", "Карточка", "Роль / тип", "Статус", "FaceID", "Доп. фото", "Посещений", "Наблюдения", "Первая встреча", "Последняя встреча", "Камера", "Профиль"]
         if column in table_data.columns
     ]
     st.dataframe(
@@ -300,6 +301,11 @@ def render_directory_table(rows, key):
             "FaceID": st.column_config.TextColumn("FaceID", width="medium"),
             "Доп. фото": st.column_config.NumberColumn("Доп. фото", width="small", format="%d"),
             "Посещений": st.column_config.NumberColumn("Посещений", width="small", format="%d"),
+            "Наблюдения": st.column_config.NumberColumn("Наблюдения", width="small", format="%d"),
+            "Статус": st.column_config.TextColumn("Статус", width="medium"),
+            "Первая встреча": st.column_config.TextColumn("Первая встреча", width="medium"),
+            "Последняя встреча": st.column_config.TextColumn("Последняя встреча", width="medium"),
+            "Камера": st.column_config.TextColumn("Камера", width="medium"),
             "Профиль": st.column_config.TextColumn("Профиль", width="medium"),
         },
     )
@@ -585,6 +591,160 @@ def render_analytics():
     st.dataframe(first_events[["ФИО", "Роль", "Время", "Статус"]], use_container_width=True, hide_index=True, column_config={"Статус": st.column_config.TextColumn(width="small")})
 
 
+def unknown_state_label(state):
+    return {"active": "Требует проверки", "converted": "Зарегистрирован", "archived": "Архив"}.get(state, state)
+
+
+def render_unknown_visitor_catalog():
+    """Render local candidate visitors without touching ERP or camera processing."""
+    session = Session()
+    try:
+        visitors = session.query(UnknownVisitor).order_by(UnknownVisitor.last_seen_at.desc()).all()
+        latest_camera = {}
+        for visit in session.query(UnknownVisitorVisit).order_by(UnknownVisitorVisit.last_seen_at.desc()).all():
+            latest_camera.setdefault(visit.visitor_id, visit.camera_id)
+    finally:
+        session.close()
+
+    active_count = sum(item.state == "active" for item in visitors)
+    converted_count = sum(item.state == "converted" for item in visitors)
+    first, second, third = st.columns(3)
+    first.metric("Требуют проверки", active_count)
+    second.metric("Зарегистрированы", converted_count)
+    third.metric("Карточек", len(visitors))
+    st.caption("Группы формируются локально по высокой похожести лица. Фото и биометрические шаблоны не передаются в ERP.")
+    if not visitors:
+        st.info("Каталог заполняется в фоне из новых и сохранённых неизвестных событий.")
+        return
+
+    controls, filter_col = st.columns([3, 1], gap="small", vertical_alignment="bottom")
+    with controls:
+        search = st.text_input("Поиск неизвестных", placeholder="Номер карточки", key="unknown_people_search")
+    with filter_col:
+        state_filter = st.selectbox("Статус", ["Все", "Требует проверки", "Зарегистрирован", "Архив"], key="unknown_people_state")
+    search_value = search.strip().casefold()
+    state_values = {"Требует проверки": "active", "Зарегистрирован": "converted", "Архив": "archived"}
+    filtered = [
+        visitor for visitor in visitors
+        if (not search_value or search_value in f"{visitor.id:04d}" or search_value in f"unknown {visitor.id}".casefold())
+        and (state_filter == "Все" or visitor.state == state_values[state_filter])
+    ]
+    page_rows = render_directory_table([
+        {
+            "№": index,
+            "Фото": profile_photo_data_uri(visitor.primary_photo_path),
+            "Карточка": f"Неизвестный #{visitor.id:04d}",
+            "Статус": unknown_state_label(visitor.state),
+            "Посещений": visitor.visit_count,
+            "Наблюдения": visitor.observation_count,
+            "Первая встреча": format_local(visitor.first_seen_at, "%d.%m.%Y %H:%M"),
+            "Последняя встреча": format_local(visitor.last_seen_at, "%d.%m.%Y %H:%M"),
+            "Камера": latest_camera.get(visitor.id, "—"),
+            "Профиль": "Открыть ниже",
+        } for index, visitor in enumerate(filtered, start=1)
+    ], "unknown_visitors")
+    if not page_rows:
+        return
+    options = {
+        f"{row['Карточка']} · {row['Статус']}": filtered[row["№"] - 1]
+        for row in page_rows
+    }
+    selected_label = st.selectbox("Открыть карточку неизвестного", list(options), key="unknown_visitor_detail")
+    visitor = options[selected_label]
+    session = Session()
+    try:
+        observations = session.query(UnknownFaceObservation, RecognitionEvent).join(
+            RecognitionEvent, RecognitionEvent.id == UnknownFaceObservation.event_id
+        ).filter(
+            UnknownFaceObservation.visitor_id == visitor.id,
+        ).order_by(UnknownFaceObservation.observed_at.desc()).all()
+        linked_employee = session.get(Employee, visitor.local_employee_id) if visitor.local_employee_id else None
+        active_candidates = session.query(UnknownVisitor).filter(
+            UnknownVisitor.state == "active", UnknownVisitor.id != visitor.id,
+        ).order_by(UnknownVisitor.last_seen_at.desc()).all()
+    finally:
+        session.close()
+    render_profile_header(
+        f"Неизвестный #{visitor.id:04d}",
+        "Локальный каталог",
+        f"Карточка #{visitor.id:04d}",
+        visitor.primary_photo_path,
+        "Неизвестный посетитель",
+        unknown_state_label(visitor.state),
+        f"{visitor.visit_count} посещ. · {visitor.observation_count} наблюд.",
+    )
+    metrics = st.columns(4)
+    metrics[0].metric("Посещения", visitor.visit_count)
+    metrics[1].metric("Наблюдения", visitor.observation_count)
+    metrics[2].metric("Первая встреча", format_local(visitor.first_seen_at, "%d.%m %H:%M"))
+    metrics[3].metric("Последняя встреча", format_local(visitor.last_seen_at, "%d.%m %H:%M"))
+    if linked_employee:
+        st.success(f"Карточка подтверждена как локальный сотрудник: {display_name(linked_employee.full_name)} · #{linked_employee.id:04d}. История неизвестного сохранена отдельно.")
+
+    event_rows = [event for _observation, event in observations]
+    image_events = [(observation, event) for observation, event in observations if profile_photo_path(event.photo_path)]
+    if image_events:
+        st.subheader("Последние фотографии")
+        columns = st.columns(min(4, len(image_events)))
+        for column, (_observation, event) in zip(columns * ((len(image_events) + len(columns) - 1) // len(columns)), image_events[:8]):
+            with column:
+                st.image(str(profile_photo_path(event.photo_path)), caption=format_local(event.created_at, "%d.%m %H:%M"), use_container_width=True)
+    render_event_history(event_rows[:20], "Для этой карточки пока нет доступных событий.")
+
+    if visitor.state == "active":
+        usable = [(observation, event) for observation, event in observations if observation.processing_status == "clustered" and profile_photo_path(event.photo_path)]
+        if usable:
+            st.markdown("<hr class='section-rule'>", unsafe_allow_html=True)
+            st.subheader("Зарегистрировать как локального сотрудника")
+            st.caption("Выбранное фото будет скопировано в локальный профиль. Прошлые неизвестные события не меняются и не отправляются в ERP.")
+            choices = {f"{format_local(event.created_at, '%d.%m.%Y %H:%M:%S')} · {event.camera_id}": observation.id for observation, event in usable}
+            with st.form(f"unknown_convert_{visitor.id}", clear_on_submit=True):
+                left, right = st.columns(2)
+                with left:
+                    full_name = st.text_input("Полное имя", key=f"unknown_name_{visitor.id}")
+                    role = st.text_input("Роль", value="Сотрудник", key=f"unknown_role_{visitor.id}")
+                with right:
+                    primary_label = st.selectbox("Основная фотография", list(choices), key=f"unknown_primary_{visitor.id}")
+                    additional_labels = st.multiselect("Дополнительные шаблоны", list(choices), key=f"unknown_extra_{visitor.id}")
+                submitted = st.form_submit_button("Создать локального сотрудника", use_container_width=True)
+            if submitted:
+                try:
+                    employee = UnknownVisitorService().convert_to_local_employee(
+                        visitor.id, full_name, role, choices[primary_label], [choices[label] for label in additional_labels],
+                    )
+                    st.success(f"Создан локальный профиль #{employee.id:04d}. Камера начнёт использовать его в течение нескольких секунд.")
+                    st.rerun()
+                except ValueError as error:
+                    st.error(str(error))
+                except Exception:
+                    st.error("Не удалось создать локальный профиль. Проверьте логи и повторите.")
+
+        with st.expander("Исправить группировку"):
+            st.caption("Разделяйте только ошибочно объединённые наблюдения. Это не изменяет исходные журнальные события.")
+            split_choices = {
+                f"{format_local(event.created_at, '%d.%m.%Y %H:%M:%S')} · {event.camera_id}": observation.id
+                for observation, event in observations if observation.processing_status == "clustered"
+            }
+            selected_for_split = st.multiselect("Наблюдения для новой карточки", list(split_choices), key=f"unknown_split_{visitor.id}")
+            if st.button("Разделить выбранные", key=f"unknown_split_action_{visitor.id}", type="secondary"):
+                try:
+                    created = UnknownVisitorService().split(visitor.id, [split_choices[label] for label in selected_for_split])
+                    st.success(f"Создана карточка неизвестного #{created.id:04d}.")
+                    st.rerun()
+                except ValueError as error:
+                    st.warning(str(error))
+            if active_candidates:
+                merge_options = {f"Неизвестный #{candidate.id:04d} · {candidate.visit_count} посещ.": candidate.id for candidate in active_candidates}
+                target_label = st.selectbox("Объединить с карточкой", list(merge_options), key=f"unknown_merge_{visitor.id}")
+                if st.button("Объединить карточки", key=f"unknown_merge_action_{visitor.id}", type="secondary"):
+                    try:
+                        target = UnknownVisitorService().merge(visitor.id, merge_options[target_label])
+                        st.success(f"Наблюдения объединены в карточку #{target.id:04d}.")
+                        st.rerun()
+                    except ValueError as error:
+                        st.warning(str(error))
+
+
 def render_people():
     render_header("Сотрудники", "Профили и последние события присутствия")
     edge_settings = load_edge_settings()
@@ -605,6 +765,7 @@ def render_people():
                 Attendance.employee_id,
                 func.count(Attendance.id),
             ).group_by(Attendance.employee_id).all())
+            unknown_visitor_count = session.query(UnknownVisitor).filter(UnknownVisitor.state == "active").count()
         finally:
             session.close()
         status_names = {
@@ -613,11 +774,12 @@ def render_people():
             "invalid": "Требуется фото",
         }
         ready_count = sum(person.embedding_status == "ready" for person in people)
-        first, second, third = st.columns(3)
+        first, second, third, fourth = st.columns(4)
         first.metric("Сотрудники ERP", len(people))
         second.metric("Локальные сотрудники", len(local_employees))
         third.metric("ERP готовы к распознаванию", ready_count)
-        erp_tab, local_tab = st.tabs([f"ERP · {len(people)}", f"Локальная база · {len(local_employees)}"])
+        fourth.metric("Неизвестные", unknown_visitor_count)
+        erp_tab, local_tab, unknown_tab = st.tabs([f"ERP · {len(people)}", f"Локальная база · {len(local_employees)}", f"Неизвестные · {unknown_visitor_count}"])
         with erp_tab:
             if not people:
                 st.info("Каталог ERP ещё не загружен в локальный кэш.")
@@ -710,6 +872,8 @@ def render_people():
                     )
                     render_local_attendance_history(attendance)
                     render_event_history(events, "Событий камеры для этого локального профиля пока нет.")
+        with unknown_tab:
+            render_unknown_visitor_catalog()
         return
     session = Session()
     try:
@@ -891,6 +1055,8 @@ def render_developer_api():
                     {"Метод": "GET", "Маршрут": "/api/v1/attendance?date=YYYY-MM-DD", "Назначение": "События присутствия"},
                     {"Метод": "GET", "Маршрут": "/api/v1/attendance/summary?date=YYYY-MM-DD", "Назначение": "Сводка по дате"},
                     {"Метод": "GET", "Маршрут": "/api/v1/recognition-events", "Назначение": "События камер с фото"},
+                    {"Метод": "GET", "Маршрут": "/api/v1/unknown-visitors", "Назначение": "Локальный каталог неизвестных"},
+                    {"Метод": "GET", "Маршрут": "/api/v1/unknown-visitors/{id}", "Назначение": "Карточка неизвестного и история"},
                     {"Метод": "GET", "Маршрут": "/api/v1/status", "Назначение": "Камеры и Health Checker"},
                     {"Метод": "GET", "Маршрут": "/api/v1/incidents", "Назначение": "История инцидентов"},
                 ]

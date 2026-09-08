@@ -55,6 +55,15 @@ edge_integration:
   request_timeout_seconds: 10
   timezone: "Asia/Tashkent"
 
+# Unknown faces are clustered only on this Edge device. They never reach ERP.
+unknown_visitors:
+  enabled: true
+  similarity_threshold: 0.55
+  visit_gap_seconds: 600
+  retention_days: 30
+  poll_interval_seconds: 5
+  backfill_batch_size: 1
+
 # Telegram is optional. Keep its token and chat ids only in settings.yaml.
 health:
   enabled: true

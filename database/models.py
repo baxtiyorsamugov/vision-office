@@ -112,6 +112,52 @@ class RecognitionEvent(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, index=True)
 
 
+class UnknownVisitor(Base):
+    """A device-local candidate identity assembled from unknown face observations."""
+    __tablename__ = "unknown_visitors"
+
+    id = Column(Integer, primary_key=True)
+    state = Column(String(20), nullable=False, default="active", index=True)
+    canonical_embedding = Column(JSON, nullable=True)
+    primary_photo_path = Column(String(1024), nullable=True)
+    first_seen_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, index=True)
+    last_seen_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, index=True)
+    visit_count = Column(Integer, nullable=False, default=0)
+    observation_count = Column(Integer, nullable=False, default=0)
+    local_employee_id = Column(Integer, ForeignKey("employees.id"), nullable=True, index=True)
+    merged_into_id = Column(Integer, ForeignKey("unknown_visitors.id"), nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+
+class UnknownFaceObservation(Base):
+    """A short-lived local biometric sample from an unknown recognition event."""
+    __tablename__ = "unknown_face_observations"
+    __table_args__ = (UniqueConstraint("event_id", name="uq_unknown_face_observation_event"),)
+
+    id = Column(String(36), primary_key=True)
+    event_id = Column(String(36), ForeignKey("recognition_events.id"), nullable=False, index=True)
+    visitor_id = Column(Integer, ForeignKey("unknown_visitors.id"), nullable=True, index=True)
+    embedding = Column(JSON, nullable=True)
+    processing_status = Column(String(20), nullable=False, default="pending", index=True)
+    processing_error = Column(Text, nullable=True)
+    observed_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, index=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+
+class UnknownVisitorVisit(Base):
+    """One camera/direction visit, deduplicated over a bounded local time window."""
+    __tablename__ = "unknown_visitor_visits"
+
+    id = Column(String(36), primary_key=True)
+    visitor_id = Column(Integer, ForeignKey("unknown_visitors.id"), nullable=False, index=True)
+    camera_id = Column(String(100), nullable=False, index=True)
+    event_type = Column(String(20), nullable=False)
+    started_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, index=True)
+    last_seen_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+    observation_count = Column(Integer, nullable=False, default=1)
+
+
 class HealthIncident(Base):
     __tablename__ = "health_incidents"
 

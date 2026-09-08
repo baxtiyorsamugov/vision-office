@@ -9,6 +9,7 @@ Docker Compose runs Vision Office as independent services:
 | `postgres` | Local PostgreSQL database for ERP cache, events, outbox and operator-added reference photos. | `vision-office-postgres` Docker volume |
 | `migrate` | Applies additive database schema migrations, then exits successfully. | PostgreSQL |
 | `edge-sync` | One shared ERP people synchronizer and event-outbox delivery worker. | PostgreSQL, `config/`, `data/`, `models/` |
+| `unknown-clusterer` | Low-priority local grouping and historical backfill for unknown faces; never reads RTSP or ERP. | PostgreSQL, `config/`, `data/`, `models/` |
 | `vision-worker` | RTSP capture and AI recognition from the local PostgreSQL cache. | `config/`, `data/`, `models/` |
 | `api` | Read-only FastAPI integration API. | `config/`, `data/` |
 | `ui` | Streamlit operations dashboard. It does not start duplicate workers in Docker. | `config/`, `data/`, `models/` |
@@ -64,7 +65,7 @@ docker compose ps
 Expected result:
 
 - `postgres` becomes `healthy`; `migrate` has status `Exited (0)`.
-- `vision-worker`, `edge-sync`, `api` and `ui` are `Up`; API, UI and worker become `healthy` after startup.
+- `vision-worker`, `edge-sync`, `unknown-clusterer`, `api` and `ui` are `Up`; API, UI, worker and unknown clusterer become `healthy` after startup.
 - Dashboard: http://127.0.0.1:8501
 - API documentation: http://127.0.0.1:8000/docs
 
@@ -85,6 +86,7 @@ Open `http://127.0.0.1:8000/monitor` in a separate browser window or on a second
 # Follow all logs, or one service only.
 docker compose logs --tail 200 -f
 docker compose logs --tail 200 -f vision-worker
+docker compose logs --tail 200 -f unknown-clusterer
 
 # Service status and built-in healthchecks.
 docker compose ps
@@ -101,6 +103,8 @@ docker compose up -d
 
 `edge-sync` is the only process that calls ERP. It performs the initial sync at startup and hourly incremental syncs afterwards; `vision-worker` remains responsible for restarting an individual camera process. An unavailable RTSP camera does not stop its sibling camera, ERP sync, API or UI.
 RTSP passwords are read only from `config/settings.yaml` and are redacted from application logs.
+
+`unknown-clusterer` uses at most 0.5 CPU and processes retained unknown-face photos one at a time. It never opens RTSP, calls ERP, or blocks the camera worker. See the [unknown visitors runbook](UNKNOWN_VISITORS_RUNBOOK.md) for review, retention and registration steps.
 
 ## Health and Diagnostics
 

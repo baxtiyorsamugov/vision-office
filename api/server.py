@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from database.manager import get_engine
 from database.migrations import run_migrations
-from database.models import Attendance, Employee, HealthIncident, RecognitionEvent
+from database.models import Attendance, Employee, HealthIncident, RecognitionEvent, UnknownFaceObservation, UnknownVisitor
 from core.performance import PROJECT_ROOT, read_runtime_status
 from core.preview import preview_path
 from core.config import ConfigurationError, load_app_settings
@@ -93,6 +93,7 @@ class RecognitionEventResponse(BaseModel):
     person_name: str | None
     confidence: float | None
     photo_path: str | None
+    unknown_visitor_id: int | None = None
     created_at: datetime
 
 
@@ -107,6 +108,28 @@ class IncidentResponse(BaseModel):
 
 class PaginatedRecognitionEvents(BaseModel):
     items: list[RecognitionEventResponse]
+    limit: int
+    offset: int
+    total: int
+
+
+class UnknownVisitorResponse(BaseModel):
+    id: int
+    state: str
+    primary_photo_path: str | None
+    first_seen_at: datetime
+    last_seen_at: datetime
+    visit_count: int
+    observation_count: int
+    local_employee_id: int | None
+
+
+class UnknownVisitorDetail(UnknownVisitorResponse):
+    events: list[RecognitionEventResponse]
+
+
+class PaginatedUnknownVisitors(BaseModel):
+    items: list[UnknownVisitorResponse]
     limit: int
     offset: int
     total: int
@@ -310,13 +333,67 @@ def list_recognition_events(
         query = query.filter(RecognitionEvent.person_id == person_id)
     total = query.count()
     rows = query.order_by(RecognitionEvent.created_at.desc()).offset(offset).limit(limit).all()
+    visitor_ids = dict(session.query(
+        UnknownFaceObservation.event_id, UnknownFaceObservation.visitor_id,
+    ).filter(UnknownFaceObservation.event_id.in_([row.id for row in rows])).all()) if rows else {}
     return PaginatedRecognitionEvents(
         items=[RecognitionEventResponse(
             id=row.id, camera_id=row.camera_id, event_type=row.event_type,
             person_id=row.person_id, person_type=row.person_type, person_name=row.person_name,
-            confidence=row.confidence, photo_path=row.photo_path, created_at=to_local(row.created_at),
+            confidence=row.confidence, photo_path=row.photo_path,
+            unknown_visitor_id=visitor_ids.get(row.id), created_at=to_local(row.created_at),
         ) for row in rows],
         limit=limit, offset=offset, total=total,
+    )
+
+
+@app.get("/api/v1/unknown-visitors", response_model=PaginatedUnknownVisitors, tags=["recognition"])
+def list_unknown_visitors(
+    state: str | None = Query(default=None, pattern="^(active|converted|archived)$"),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    session: Session = Depends(get_session),
+    _: None = Depends(require_api_key),
+) -> PaginatedUnknownVisitors:
+    query = session.query(UnknownVisitor)
+    if state:
+        query = query.filter(UnknownVisitor.state == state)
+    total = query.count()
+    rows = query.order_by(UnknownVisitor.last_seen_at.desc()).offset(offset).limit(limit).all()
+    return PaginatedUnknownVisitors(
+        items=[UnknownVisitorResponse(
+            id=row.id, state=row.state, primary_photo_path=row.primary_photo_path,
+            first_seen_at=to_local(row.first_seen_at), last_seen_at=to_local(row.last_seen_at),
+            visit_count=row.visit_count, observation_count=row.observation_count,
+            local_employee_id=row.local_employee_id,
+        ) for row in rows],
+        limit=limit, offset=offset, total=total,
+    )
+
+
+@app.get("/api/v1/unknown-visitors/{visitor_id}", response_model=UnknownVisitorDetail, tags=["recognition"])
+def get_unknown_visitor(
+    visitor_id: int,
+    session: Session = Depends(get_session),
+    _: None = Depends(require_api_key),
+) -> UnknownVisitorDetail:
+    visitor = session.get(UnknownVisitor, visitor_id)
+    if visitor is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown visitor not found")
+    rows = session.query(RecognitionEvent, UnknownFaceObservation).join(
+        UnknownFaceObservation, UnknownFaceObservation.event_id == RecognitionEvent.id
+    ).filter(UnknownFaceObservation.visitor_id == visitor.id).order_by(RecognitionEvent.created_at.desc()).all()
+    return UnknownVisitorDetail(
+        id=visitor.id, state=visitor.state, primary_photo_path=visitor.primary_photo_path,
+        first_seen_at=to_local(visitor.first_seen_at), last_seen_at=to_local(visitor.last_seen_at),
+        visit_count=visitor.visit_count, observation_count=visitor.observation_count,
+        local_employee_id=visitor.local_employee_id,
+        events=[RecognitionEventResponse(
+            id=event.id, camera_id=event.camera_id, event_type=event.event_type,
+            person_id=event.person_id, person_type=event.person_type, person_name=event.person_name,
+            confidence=event.confidence, photo_path=event.photo_path,
+            unknown_visitor_id=observation.visitor_id, created_at=to_local(event.created_at),
+        ) for event, observation in rows],
     )
 
 

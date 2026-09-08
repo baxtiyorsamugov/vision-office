@@ -69,6 +69,24 @@ services:
         condition: service_completed_successfully
     command: ["python", "-m", "core.edge.sync_worker"]
 
+  unknown-clusterer:
+    <<: *common
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    # Backfill is intentionally low-priority so camera inference retains CPU headroom.
+    cpus: "0.50"
+    mem_limit: 768m
+    command: ["python", "-m", "core.unknown_visitors"]
+    healthcheck:
+      test: ["CMD", "python", "docker/healthcheck.py", "unknown-clusterer"]
+      interval: 20s
+      # A half-core container can take longer than the generic probe timeout
+      # while the camera worker is using the remaining CPU capacity.
+      timeout: 20s
+      retries: 3
+      start_period: 120s
+
   api:
     <<: *common
     depends_on:

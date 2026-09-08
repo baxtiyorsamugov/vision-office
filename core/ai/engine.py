@@ -88,6 +88,7 @@ def face_recognition_worker(input_queue, shared_memory, face_timings, face_metri
     from core.edge.config import load_edge_settings
     from core.edge.service import EdgeService
     from core.events import RecognitionEventStore
+    from core.unknown_visitors import load_unknown_visitor_settings
     from database.manager import get_engine
     from sqlalchemy.orm import sessionmaker
     
@@ -100,6 +101,7 @@ def face_recognition_worker(input_queue, shared_memory, face_timings, face_metri
     event_store = RecognitionEventStore(
         engine,
         cooldown_seconds=edge_settings.event_cooldown_seconds,
+        track_unknown_observations=load_unknown_visitor_settings().enabled,
     )
     known_names, known_embeddings = _load_known_faces(Session, edge_service, edge_settings.enabled)
     last_cache_refresh = time.monotonic()

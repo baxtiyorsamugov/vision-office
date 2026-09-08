@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.request import urlopen
 
@@ -38,6 +39,15 @@ def _worker_ok() -> bool:
         return False
 
 
+def _unknown_clusterer_ok() -> bool:
+    try:
+        payload = json.loads((PROJECT_ROOT / "data" / "unknown_clusterer_status.json").read_text(encoding="utf-8"))
+        updated_at = datetime.fromisoformat(str(payload["updated_at"]).replace("Z", "+00:00"))
+        return bool(payload.get("running")) and updated_at >= datetime.now(timezone.utc) - timedelta(minutes=2)
+    except (KeyError, OSError, ValueError, TypeError):
+        return False
+
+
 def main() -> int:
     target = sys.argv[1] if len(sys.argv) > 1 else ""
     if target == "api":
@@ -46,6 +56,8 @@ def main() -> int:
         return 0 if _http_ok("http://127.0.0.1:8501/_stcore/health") else 1
     if target == "worker":
         return 0 if _worker_ok() else 1
+    if target == "unknown-clusterer":
+        return 0 if _unknown_clusterer_ok() else 1
     return 2
 
 

@@ -21,10 +21,11 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 class RecognitionEventStore:
-    def __init__(self, engine, cooldown_seconds: int = 60, retention_days: int = 30):
+    def __init__(self, engine, cooldown_seconds: int = 60, retention_days: int = 30, track_unknown_observations: bool = False):
         self.Session = sessionmaker(bind=engine)
         self.cooldown_seconds = max(0, cooldown_seconds)
         self.retention_days = max(1, retention_days)
+        self.track_unknown_observations = track_unknown_observations
         RecognitionEvent.__table__.create(engine, checkfirst=True)
 
     @staticmethod
@@ -92,6 +93,10 @@ class RecognitionEventStore:
                 created_at=now,
             )
             session.add(event)
+            if self.track_unknown_observations and identity is None:
+                from core.unknown_visitors import add_unknown_observation
+
+                add_unknown_observation(session, event, embedding)
             session.commit()
             session.refresh(event)
             logger.info(

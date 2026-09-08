@@ -10,6 +10,7 @@ Vision Office is a local face-recognition and attendance platform for RTSP camer
 - [Operations runbook](docs/OPERATIONS_RUNBOOK.md)
 - [Docker deployment runbook](docs/DOCKER_RUNBOOK.md)
 - [Local PostgreSQL, hourly ERP sync and reference-photo runbook](docs/POSTGRESQL_RUNBOOK.md)
+- [Unknown visitors catalog runbook](docs/UNKNOWN_VISITORS_RUNBOOK.md)
 
 The roadmap is updated with each verified stage; do not treat a task as complete until its documented checks pass.
 
@@ -45,7 +46,7 @@ Open http://127.0.0.1:8501 in a browser.
 
 ## Docker launch
 
-Docker runs PostgreSQL, the shared ERP synchronizer, camera/AI worker, API and dashboard as separate services. It preserves local settings, event photos and models on the host computer; PostgreSQL uses its own durable Docker volume:
+Docker runs PostgreSQL, the shared ERP synchronizer, low-priority unknown-face clusterer, camera/AI worker, API and dashboard as separate services. It preserves local settings, event photos and models on the host computer; PostgreSQL uses its own durable Docker volume:
 
 ```powershell
 docker compose build --pull
@@ -77,9 +78,9 @@ Vision Office can operate as an edge device for a Learning Center backend. Copy 
 `config/settings.yaml`, set `enabled: true`, and enter the backend URL, device UUID,
 and newly issued device API key. Do not use an administrator JWT on the device.
 
-When enabled, the backend is the only source of people: the app synchronizes its
-local matching cache from `/persons/sync`, sends `entry` and `unknown` events through
-an on-disk outbox, and disables local registration. The first synchronization happens
+When enabled, the backend is the only source of ERP people: the app synchronizes its
+local matching cache from `/persons/sync` and sends only recognized ERP access events through
+an on-disk outbox. Unknown faces and local employees remain on the device. The first synchronization happens
 after the recognition worker starts. Review its status on the **Registration** page.
 
 The **Registration** page also has an optional **Local employee** form. These profiles
