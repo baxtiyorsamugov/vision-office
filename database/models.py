@@ -1,8 +1,13 @@
 from sqlalchemy import Boolean, Column, Integer, String, DateTime, Float, ForeignKey, JSON, Text, UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
-from datetime import datetime
+from datetime import datetime, timezone
 
 Base = declarative_base()
+
+
+def utc_now() -> datetime:
+    """Return an aware UTC instant for PostgreSQL TIMESTAMPTZ columns."""
+    return datetime.now(timezone.utc)
 
 class Employee(Base):
     __tablename__ = 'employees'
@@ -19,7 +24,7 @@ class Attendance(Base):
     
     id = Column(Integer, primary_key=True)
     employee_id = Column(Integer, ForeignKey('employees.id'))
-    timestamp = Column(DateTime, default=datetime.now)
+    timestamp = Column(DateTime, default=datetime.utcnow)
     event_type = Column(String(20))
 
 class Violation(Base):
@@ -29,7 +34,7 @@ class Violation(Base):
     camera_id = Column(String(50))
     violation_type = Column(String(50)) # "trash_detected"
     screenshot_path = Column(String(255))
-    timestamp = Column(DateTime, default=datetime.now)
+    timestamp = Column(DateTime, default=datetime.utcnow)
 
 
 class RemotePerson(Base):
@@ -45,7 +50,7 @@ class RemotePerson(Base):
     photo_path = Column(String(1024), nullable=True)
     embedding_status = Column(String(32), nullable=False, default="pending")
     embedding_error = Column(Text, nullable=True)
-    updated_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
 
 
 class RemotePersonReferencePhoto(Base):
@@ -60,7 +65,7 @@ class RemotePersonReferencePhoto(Base):
     image_checksum = Column(String(64), nullable=False)
     embedding = Column(JSON, nullable=False)
     active = Column(Boolean, nullable=False, default=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
 
 
 class EdgeSyncState(Base):
@@ -85,7 +90,7 @@ class AccessLogOutbox(Base):
     status = Column(String(20), nullable=False, default='pending', index=True)
     attempts = Column(Integer, nullable=False, default=0)
     last_error = Column(Text, nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
     next_attempt_at = Column(DateTime(timezone=True), nullable=True)
     sent_at = Column(DateTime(timezone=True), nullable=True)
     endpoint = Column(String(255), nullable=False, default="/api/v1/learning-centers/access-logs")
@@ -104,7 +109,7 @@ class RecognitionEvent(Base):
     subject_signature = Column(String(128), nullable=False, index=True)
     confidence = Column(Float, nullable=True)
     photo_path = Column(String(1024), nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow, index=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, index=True)
 
 
 class HealthIncident(Base):
@@ -114,7 +119,7 @@ class HealthIncident(Base):
     component = Column(String(100), nullable=False, index=True)
     status = Column(String(20), nullable=False)
     message = Column(Text, nullable=False)
-    opened_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    opened_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
     recovered_at = Column(DateTime(timezone=True), nullable=True)
     notification_sent_at = Column(DateTime(timezone=True), nullable=True)
 
@@ -129,6 +134,6 @@ class NotificationOutbox(Base):
     status = Column(String(20), nullable=False, default="pending", index=True)
     attempts = Column(Integer, nullable=False, default=0)
     last_error = Column(Text, nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
     next_attempt_at = Column(DateTime(timezone=True), nullable=True)
     sent_at = Column(DateTime(timezone=True), nullable=True)

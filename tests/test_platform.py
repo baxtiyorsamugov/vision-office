@@ -2,8 +2,10 @@ import tempfile
 import time
 import unittest
 import os
+from datetime import date as calendar_date, datetime
 from pathlib import Path
 from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 import cv2
 import numpy as np
@@ -16,6 +18,7 @@ from core.events import RecognitionEventStore
 import core.logging_setup as logging_setup
 from core.health import HealthChecker, HealthSettings
 from core.hr import HRManager
+from core.local_time import local_day_bounds_utc, to_local
 from core.ai.engine import _load_known_faces
 from core import performance
 from core.preview import CameraPreviewPublisher, preview_path
@@ -154,6 +157,16 @@ class PlatformTests(unittest.TestCase):
 
     def test_edge_defaults_to_hourly_people_sync(self):
         self.assertEqual(EdgeSettings().sync_interval_seconds, 3600)
+
+    def test_operator_times_use_tashkent_timezone_and_local_calendar_day(self):
+        with patch("core.local_time.device_timezone", return_value=ZoneInfo("Asia/Tashkent")):
+            self.assertEqual(to_local(datetime(2026, 9, 8, 5, 30)).strftime("%H:%M"), "10:30")
+            start, end = local_day_bounds_utc(calendar_date(2026, 9, 8))
+        self.assertEqual(start, datetime(2026, 9, 7, 19, 0))
+        self.assertEqual(end, datetime(2026, 9, 8, 19, 0))
+
+    def test_recognition_events_are_created_with_an_aware_utc_instant(self):
+        self.assertEqual(RecognitionEventStore._utcnow().utcoffset().total_seconds(), 0)
 
     def test_database_url_uses_postgresql_config_when_requested(self):
         settings = Path(self.tempdir.name) / "settings.yaml"

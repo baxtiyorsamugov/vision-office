@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -29,7 +29,7 @@ class RecognitionEventStore:
 
     @staticmethod
     def _utcnow() -> datetime:
-        return datetime.utcnow()
+        return datetime.now(timezone.utc)
 
     @staticmethod
     def _signature(identity: dict[str, str] | None, embedding: np.ndarray | None, hint: str | None) -> str:

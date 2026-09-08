@@ -3,6 +3,7 @@ from datetime import datetime
 from database.models import Employee, Attendance
 from database.manager import get_engine
 from sqlalchemy.orm import sessionmaker
+from core.local_time import format_local
 
 class HRManager:
     """Persist attendance only for device-local employee identities."""
@@ -57,15 +58,16 @@ class HRManager:
             # Verify the employee still exists before adding an attendance row.
             if session.get(Employee, employee_id) is not None:
                 # Создаем запись о присутствии
+                event_time = datetime.utcnow()
                 new_log = Attendance(
                     employee_id=employee_id, 
                     event_type=event_type,
-                    timestamp=datetime.now()
+                    timestamp=event_time,
                 )
                 session.add(new_log)
                 session.commit()
                 
-                time_str = datetime.now().strftime("%H:%M:%S")
+                time_str = format_local(event_time, "%H:%M:%S")
                 action = "выход" if event_type == "exit" else "приход"
                 print(f"📝 [HR LOG] Зафиксирован {action}: {name} в {time_str}")
                 

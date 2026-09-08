@@ -56,6 +56,12 @@ Invoke-RestMethod http://127.0.0.1:8000/api/v1/health
 
 The dashboard's **Synchronization** page displays the cached people, sync error, queue state, and local reference-photo count.
 
+## Local Time
+
+Vision Office stores event instants in UTC so ERP delivery, retries and historical records remain unambiguous. The dashboard and local API convert those instants to `edge_integration.timezone`, which defaults to `Asia/Tashkent`. Daily attendance analytics and the 09:00 arrival threshold use the same local calendar day.
+
+Do not manually shift existing PostgreSQL timestamps. To use a different site timezone, change only `edge_integration.timezone` in the ignored `config/settings.yaml`, then apply it with `docker compose up -d --build`.
+
 ### Manual ERP refresh
 
 When a person was added, changed or deactivated in ERP and an immediate update is needed, open `http://127.0.0.1:8501`, select **Registration**, then select **Update from ERP**. The dashboard records the request locally; `edge-sync` picks it up within its normal delivery polling interval. It performs a complete catalog snapshot, so people absent from ERP are retained in PostgreSQL as inactive and removed from FaceID matching. Nothing is deleted from local audit history or operator-added reference photos.

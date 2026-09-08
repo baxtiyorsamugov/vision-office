@@ -9,7 +9,7 @@ import socket
 import time
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -85,7 +85,7 @@ class HealthChecker:
 
     @staticmethod
     def _utcnow() -> datetime:
-        return datetime.utcnow()
+        return datetime.now(timezone.utc)
 
     def _database_status(self) -> tuple[str, str]:
         try:
@@ -267,7 +267,7 @@ class HealthChecker:
             RecognitionEventStore(self.engine).purge_expired_photos()
             self.last_cleanup_at = now
         result = {
-            "timestamp": self._utcnow().isoformat() + "Z",
+            "timestamp": self._utcnow().isoformat().replace("+00:00", "Z"),
             "overall_status": "ok" if all(status == "ok" for status, _ in statuses.values()) else "degraded",
             "components": {key: {"status": status, "message": message} for key, (status, message) in statuses.items()},
         }

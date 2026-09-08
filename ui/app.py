@@ -24,6 +24,7 @@ from database.manager import get_engine
 from database.migrations import run_migrations
 from database.models import AccessLogOutbox, Attendance, Base, EdgeSyncState, Employee, HealthIncident, RecognitionEvent, RemotePerson, RemotePersonReferencePhoto
 from core.edge.config import load_edge_settings
+from core.local_time import as_utc, format_local, local_day_bounds_utc, local_now, local_today, to_local
 from core.performance import read_runtime_status
 
 
@@ -332,7 +333,7 @@ def render_event_history(events, empty_message):
         return
     st.dataframe(
         pd.DataFrame([{
-            "Дата и время": event.created_at.strftime("%d.%m.%Y %H:%M:%S"),
+            "Дата и время": format_local(event.created_at),
             "Камера": event.camera_id,
             "Событие": event.event_type,
             "Уверенность": f"{event.confidence:.0%}" if event.confidence is not None else "—",
@@ -350,8 +351,8 @@ def render_local_attendance_history(attendance):
         return
     st.dataframe(
         pd.DataFrame([{
-            "Дата": item.timestamp.strftime("%d.%m.%Y"),
-            "Время": item.timestamp.strftime("%H:%M:%S"),
+            "Дата": format_local(item.timestamp, "%d.%m.%Y"),
+            "Время": format_local(item.timestamp, "%H:%M:%S"),
             "Событие": item.event_type or "entry",
         } for item in attendance]),
         use_container_width=True,
@@ -364,8 +365,7 @@ def display_name(name):
 
 
 def day_bounds(selected_date: date) -> tuple[datetime, datetime]:
-    start = datetime.combine(selected_date, datetime.min.time())
-    return start, start + timedelta(days=1)
+    return local_day_bounds_utc(selected_date)
 
 
 def status_badge(running, active_label, idle_label):
@@ -406,7 +406,7 @@ def render_control_center():
     live_running = bool(runtime.get("running")) if managed_runtime() else process_running("live_process")
     demo_running = process_running("demo_process")
     recognition_status = "Активно" if live_running else "Ожидание"
-    st.markdown(f'''<div class="status-strip"><div><div class="status-label">Распознавание</div><div class="status-value">{recognition_status}</div></div><div>{status_badge(live_running, "RTSP подключён", "RTSP остановлен")}</div><div>{status_badge(demo_running, "Демо запущено", "Демо выключено")}</div><div class="activity-meta">Обновлено<br>{datetime.now().strftime("%H:%M")}</div></div>''', unsafe_allow_html=True)
+    st.markdown(f'''<div class="status-strip"><div><div class="status-label">Распознавание</div><div class="status-value">{recognition_status}</div></div><div>{status_badge(live_running, "RTSP подключён", "RTSP остановлен")}</div><div>{status_badge(demo_running, "Демо запущено", "Демо выключено")}</div><div class="activity-meta">Обновлено<br>{local_now().strftime("%H:%M")}</div></div>''', unsafe_allow_html=True)
 
     session = Session()
     try:
@@ -414,7 +414,7 @@ def render_control_center():
             session.query(RemotePerson).filter(RemotePerson.active.is_(True)).count() + session.query(Employee).count()
             if edge_settings.configured else session.query(Employee).count()
         )
-        day_start, day_end = day_bounds(date.today())
+        day_start, day_end = day_bounds(local_today())
         today_count = session.query(Attendance.employee_id).filter(
             Attendance.timestamp >= day_start, Attendance.timestamp < day_end,
         ).distinct().count()
@@ -527,7 +527,12 @@ def load_attendance(selected_date):
         ).order_by(Attendance.timestamp.asc()).all()
     finally:
         session.close()
-    return pd.DataFrame([{"ФИО": row.full_name, "Роль": row.role or "Не указана", "Дата и время": row.timestamp, "Событие": row.event_type or "check_in"} for row in rows])
+    return pd.DataFrame([{
+        "ФИО": row.full_name,
+        "Роль": row.role or "Не указана",
+        "Дата и время": to_local(row.timestamp).replace(tzinfo=None),
+        "Событие": row.event_type or "check_in",
+    } for row in rows])
 
 
 def load_recent_events(limit):
@@ -539,7 +544,7 @@ def load_recent_events(limit):
     return pd.DataFrame([{
         "ФИО": display_name(row.person_name or "Неизвестный"),
         "Роль": row.person_type,
-        "Время": row.created_at.strftime("%d.%m %H:%M"),
+        "Время": format_local(row.created_at, "%d.%m %H:%M"),
         "Событие": row.event_type,
         "Камера": row.camera_id,
     } for row in rows])
@@ -547,7 +552,7 @@ def load_recent_events(limit):
 
 def render_analytics():
     render_header("Аналитика присутствия", "Сводка входов и дисциплины по выбранной дате")
-    selected_date = st.date_input("Дата", value=date.today(), label_visibility="collapsed")
+    selected_date = st.date_input("Дата", value=local_today(), label_visibility="collapsed")
     df = load_attendance(selected_date)
     if df.empty:
         st.markdown("<div class='empty-state'>За выбранную дату событий нет.</div>", unsafe_allow_html=True)
@@ -722,7 +727,7 @@ def render_people():
     st.markdown("<hr class='section-rule'>", unsafe_allow_html=True)
     st.subheader("Последние события")
     if logs:
-        st.dataframe(pd.DataFrame([{"Дата": log.timestamp.strftime("%d.%m.%Y"), "Время": log.timestamp.strftime("%H:%M:%S"), "Событие": log.event_type} for log in logs]), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame([{"Дата": format_local(log.timestamp, "%d.%m.%Y"), "Время": format_local(log.timestamp, "%H:%M:%S"), "Событие": log.event_type} for log in logs]), use_container_width=True, hide_index=True)
     else:
         st.markdown("<div class='empty-state'>Событий для этого профиля пока нет.</div>", unsafe_allow_html=True)
 
@@ -780,7 +785,7 @@ def render_edge_status(edge_settings):
     if sync_state and sync_state.last_error:
         st.warning(f"Последняя ошибка синхронизации: {sync_state.last_error}")
     elif sync_state and sync_state.last_incremental_sync_at:
-        st.success(f"Последняя синхронизация: {sync_state.last_incremental_sync_at}")
+        st.success(f"Последняя синхронизация: {format_local(sync_state.last_incremental_sync_at)}")
     else:
         st.info("Синхронизация начнётся при запуске edge-sync.")
 
@@ -791,16 +796,16 @@ def render_edge_status(edge_settings):
 
             try:
                 requested_at = EdgeService(edge_settings).request_full_sync()
-                st.success(f"Запрос принят: {requested_at.strftime('%d.%m.%Y %H:%M:%S')}")
+                st.success(f"Запрос принят: {format_local(requested_at)}")
             except Exception:
                 st.error("Не удалось поставить обновление в очередь. Проверьте статус PostgreSQL и повторите.")
     with sync_request_status:
         request_at = sync_state.manual_full_sync_requested_at if sync_state else None
         completed_at = sync_state.last_manual_full_sync_at if sync_state else None
-        if request_at and (completed_at is None or request_at > completed_at):
-            st.info(f"Полное обновление ERP ожидает edge-sync: {request_at}")
+        if request_at and (completed_at is None or as_utc(request_at) > as_utc(completed_at)):
+            st.info(f"Полное обновление ERP ожидает edge-sync: {format_local(request_at)}")
         elif completed_at:
-            st.caption(f"Последнее ручное полное обновление: {completed_at}")
+            st.caption(f"Последнее ручное полное обновление: {format_local(completed_at)}")
 
     st.markdown("<hr class='section-rule'>", unsafe_allow_html=True)
     render_local_employee_form("edge_local_employee_form")

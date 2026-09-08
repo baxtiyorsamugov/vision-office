@@ -20,6 +20,7 @@ from database.models import Attendance, Employee, HealthIncident, RecognitionEve
 from core.performance import PROJECT_ROOT, read_runtime_status
 from core.preview import preview_path
 from core.config import ConfigurationError, load_app_settings
+from core.local_time import local_day_bounds_utc, local_now, local_time_to_utc, to_local
 
 
 engine = get_engine()
@@ -127,8 +128,7 @@ def get_session() -> Generator[Session, None, None]:
 
 
 def day_bounds(selected_date: date) -> tuple[datetime, datetime]:
-    start = datetime.combine(selected_date, time.min)
-    return start, start + timedelta(days=1)
+    return local_day_bounds_utc(selected_date)
 
 
 def require_api_key(x_api_key: str | None = Header(default=None)) -> None:
@@ -159,7 +159,7 @@ def root() -> dict[str, str]:
 @app.get("/api/v1/health", tags=["service"])
 def health(session: Session = Depends(get_session)) -> dict[str, object]:
     session.execute(text("SELECT 1"))
-    return {"status": "ok", "timestamp": datetime.now().isoformat(), "runtime": read_runtime_status()}
+    return {"status": "ok", "timestamp": local_now().isoformat(), "runtime": read_runtime_status()}
 
 
 @app.get("/api/v1/status", tags=["service"])
@@ -264,7 +264,7 @@ def list_attendance(
                 full_name=employee.full_name,
                 role=employee.role,
                 event_type=attendance.event_type,
-                timestamp=attendance.timestamp,
+                timestamp=to_local(attendance.timestamp),
             )
             for attendance, employee in rows
         ],
@@ -284,7 +284,7 @@ def attendance_summary(
     events = session.query(Attendance).filter(
         Attendance.timestamp >= day_start, Attendance.timestamp < day_end,
     ).all()
-    work_start = datetime.combine(selected_date, time(hour=9))
+    work_start = local_time_to_utc(selected_date, time(hour=9))
     return AttendanceSummary(
         date=selected_date,
         total_events=len(events),
@@ -314,7 +314,7 @@ def list_recognition_events(
         items=[RecognitionEventResponse(
             id=row.id, camera_id=row.camera_id, event_type=row.event_type,
             person_id=row.person_id, person_type=row.person_type, person_name=row.person_name,
-            confidence=row.confidence, photo_path=row.photo_path, created_at=row.created_at,
+            confidence=row.confidence, photo_path=row.photo_path, created_at=to_local(row.created_at),
         ) for row in rows],
         limit=limit, offset=offset, total=total,
     )
@@ -336,7 +336,8 @@ def list_incidents(
     return PaginatedIncidents(
         items=[IncidentResponse(
             id=row.id, component=row.component, status=row.status, message=row.message,
-            opened_at=row.opened_at, recovered_at=row.recovered_at,
+            opened_at=to_local(row.opened_at),
+            recovered_at=to_local(row.recovered_at) if row.recovered_at else None,
         ) for row in rows],
         limit=limit, offset=offset, total=total,
     )
