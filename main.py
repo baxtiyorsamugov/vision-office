@@ -11,7 +11,7 @@ import time
 import cv2
 import onnxruntime as ort
 
-from core.ai.engine import AI_Engine
+from core.ai.engine import AI_Engine, ensure_models_available
 from core.config import AppSettings, CameraSettings, ConfigurationError, load_app_settings
 from core.edge.config import load_edge_settings
 from core.hr import HRManager
@@ -36,12 +36,17 @@ def run_camera(camera: CameraSettings, ai_settings: dict, log_level: str = "INFO
     configure_logging(log_level)
     init_db()
     logger.info("Starting camera camera_id=%s event_type=%s", camera.id, camera.event_type)
-    ai = AI_Engine(
-        detection_imgsz=ai_settings.get("face_detection_imgsz", 960),
-        detection_fps=ai_settings.get("face_detection_fps", 20),
-        camera_id=camera.id,
-        event_type=camera.event_type,
-    )
+    try:
+        ai = AI_Engine(
+            detection_imgsz=ai_settings.get("face_detection_imgsz", 960),
+            detection_fps=ai_settings.get("face_detection_fps", 20),
+            camera_id=camera.id,
+            event_type=camera.event_type,
+        )
+    except ConfigurationError as error:
+        # A supervised child must report the missing input, not a model traceback.
+        logger.error("Camera camera_id=%s cannot start: %s", camera.id, error)
+        raise SystemExit(f"Configuration error: {error}") from error
     # HRManager filters on the local identity prefix, so ERP recognition is
     # never written to the device-only attendance table.
     hr = HRManager(cooldown_minutes=1)
@@ -124,6 +129,10 @@ def main() -> None:
     edge_settings = load_edge_settings()
     if error := edge_settings.validation_error():
         raise SystemExit(f"Configuration error: {error}")
+    try:
+        ensure_models_available()
+    except ConfigurationError as error:
+        raise SystemExit(f"Configuration error: {error}") from error
     init_db()
     active_cameras = tuple(camera for camera in settings.cameras if camera.is_active)
     if len(active_cameras) == 1:

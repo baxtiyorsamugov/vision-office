@@ -10,6 +10,8 @@ from collections import deque
 from pathlib import Path
 from ultralytics import YOLO
 
+from core.config import ConfigurationError
+
 ANALYZING_STATUS = "Анализ..."
 SEARCHING_STATUS = "Поиск лица..."
 UNKNOWN_STATUS = "Неизвестный"
@@ -33,7 +35,24 @@ def detector_model_path() -> str:
     if configured_path.is_file():
         return str(configured_path)
     bundled = PROJECT_ROOT / "models" / configured_path.name
-    return str(bundled) if bundled.is_file() else configured
+    if bundled.is_file():
+        return str(bundled)
+    # Returning the bare name would make Ultralytics try to download weights from
+    # GitHub on an Edge device, so an operator gets the missing file instead.
+    raise ConfigurationError(
+        f"Face detection weights '{configured_path.name}' were not found. "
+        f"Copy the file to {PROJECT_ROOT / 'models'} (the ./models directory of this project) "
+        "or set VISION_OFFICE_YOLO_MODEL to its full path. "
+        "Weights are never downloaded automatically."
+    )
+
+
+def ensure_models_available() -> None:
+    """Validate detection and FaceID weights before any camera process starts."""
+    from core.ai.recognizer import ensure_faceid_models_available
+
+    detector_model_path()
+    ensure_faceid_models_available()
 
 
 def edge_delivery_worker(stop_event):

@@ -6,14 +6,30 @@ import insightface
 import numpy as np
 import onnxruntime as ort
 
+from core.config import ConfigurationError
+
 
 _DLL_DIRECTORY_HANDLES = []
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 INSIGHTFACE_MODEL_ROOT = PROJECT_ROOT / "models" / "insightface"
+FACEID_MODEL_PACK = "buffalo_l"
+
+
+def ensure_faceid_models_available() -> None:
+    """Report the missing FaceID pack instead of an InsightFace download traceback."""
+    pack_directory = INSIGHTFACE_MODEL_ROOT / "models" / FACEID_MODEL_PACK
+    if any(pack_directory.glob("*.onnx")):
+        return
+    raise ConfigurationError(
+        f"FaceID model pack '{FACEID_MODEL_PACK}' was not found in {pack_directory}. "
+        "Unpack the approved pack there; the Docker services mount ./models read-only, "
+        "so InsightFace cannot download it on the device."
+    )
 
 
 class FaceRecognizer:
     def __init__(self, det_size=(320, 320)):
+        ensure_faceid_models_available()
         self.using_cuda = self._cuda_runtime_ready()
         self.app = self._create_app(det_size, self.using_cuda)
 

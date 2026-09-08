@@ -19,7 +19,8 @@ import core.logging_setup as logging_setup
 from core.health import HealthChecker, HealthSettings
 from core.hr import HRManager
 from core.local_time import local_day_bounds_utc, to_local
-from core.ai.engine import _load_known_faces
+from core.ai.engine import _load_known_faces, detector_model_path
+import core.ai.recognizer as recognizer_module
 from core import performance
 from core.preview import CameraPreviewPublisher, preview_path
 from core.video.streamer import safe_source_label
@@ -265,6 +266,34 @@ class PlatformTests(unittest.TestCase):
         label = safe_source_label("rtsp://admin:secret-password@192.168.0.2:554/Streaming/Channels/101")
         self.assertEqual(label, "rtsp://192.168.0.2:554/Streaming/Channels/101")
         self.assertNotIn("secret-password", label)
+
+    def test_missing_detection_weights_report_the_expected_location(self):
+        with patch.dict(os.environ, {"VISION_OFFICE_YOLO_MODEL": "absent-face-model.pt"}):
+            with self.assertRaises(ConfigurationError) as raised:
+                detector_model_path()
+        message = str(raised.exception)
+        self.assertIn("absent-face-model.pt", message)
+        self.assertIn("models", message)
+
+    def test_configured_detection_weights_are_used_when_present(self):
+        weights = Path(self.tempdir.name) / "yolov8n-face.pt"
+        weights.write_bytes(b"weights")
+        with patch.dict(os.environ, {"VISION_OFFICE_YOLO_MODEL": str(weights)}):
+            self.assertEqual(detector_model_path(), str(weights))
+
+    def test_missing_faceid_pack_reports_the_expected_location(self):
+        empty_root = Path(self.tempdir.name) / "insightface"
+        with patch.object(recognizer_module, "INSIGHTFACE_MODEL_ROOT", empty_root):
+            with self.assertRaises(ConfigurationError) as raised:
+                recognizer_module.ensure_faceid_models_available()
+        self.assertIn("buffalo_l", str(raised.exception))
+
+    def test_present_faceid_pack_passes_validation(self):
+        pack = Path(self.tempdir.name) / "insightface" / "models" / "buffalo_l"
+        pack.mkdir(parents=True)
+        (pack / "det_10g.onnx").write_bytes(b"model")
+        with patch.object(recognizer_module, "INSIGHTFACE_MODEL_ROOT", pack.parents[1]):
+            recognizer_module.ensure_faceid_models_available()
 
 
 if __name__ == "__main__":
