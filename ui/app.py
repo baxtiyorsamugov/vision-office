@@ -749,6 +749,7 @@ def render_edge_status(edge_settings):
     session = Session()
     try:
         active_people = session.query(RemotePerson).filter(RemotePerson.active.is_(True)).count()
+        inactive_people = session.query(RemotePerson).filter(RemotePerson.active.is_(False)).count()
         embeddings = session.query(RemotePerson).filter(
             RemotePerson.active.is_(True), RemotePerson.embedding.is_not(None)
         ).count()
@@ -769,18 +770,37 @@ def render_edge_status(edge_settings):
         st.markdown("<hr class='section-rule'>", unsafe_allow_html=True)
         render_local_employee_form("edge_local_employee_form")
         return
-    metrics = st.columns(5)
+    metrics = st.columns(6)
     metrics[0].metric("Активные люди", active_people)
-    metrics[1].metric("С embeddings", embeddings)
-    metrics[2].metric("Доп. фото", local_photo_count)
-    metrics[3].metric("В очереди", queued)
-    metrics[4].metric("Требуют внимания", failed)
+    metrics[1].metric("Неактивные", inactive_people)
+    metrics[2].metric("С embeddings", embeddings)
+    metrics[3].metric("Доп. фото", local_photo_count)
+    metrics[4].metric("В очереди", queued)
+    metrics[5].metric("Требуют внимания", failed)
     if sync_state and sync_state.last_error:
         st.warning(f"Последняя ошибка синхронизации: {sync_state.last_error}")
     elif sync_state and sync_state.last_incremental_sync_at:
         st.success(f"Последняя синхронизация: {sync_state.last_incremental_sync_at}")
     else:
         st.info("Синхронизация начнётся при запуске edge-sync.")
+
+    sync_action, sync_request_status = st.columns([1, 2], gap="large", vertical_alignment="bottom")
+    with sync_action:
+        if st.button("Обновить из ERP", key="request_erp_full_sync", use_container_width=True):
+            from core.edge.service import EdgeService
+
+            try:
+                requested_at = EdgeService(edge_settings).request_full_sync()
+                st.success(f"Запрос принят: {requested_at.strftime('%d.%m.%Y %H:%M:%S')}")
+            except Exception:
+                st.error("Не удалось поставить обновление в очередь. Проверьте статус PostgreSQL и повторите.")
+    with sync_request_status:
+        request_at = sync_state.manual_full_sync_requested_at if sync_state else None
+        completed_at = sync_state.last_manual_full_sync_at if sync_state else None
+        if request_at and (completed_at is None or request_at > completed_at):
+            st.info(f"Полное обновление ERP ожидает edge-sync: {request_at}")
+        elif completed_at:
+            st.caption(f"Последнее ручное полное обновление: {completed_at}")
 
     st.markdown("<hr class='section-rule'>", unsafe_allow_html=True)
     render_local_employee_form("edge_local_employee_form")

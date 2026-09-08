@@ -86,6 +86,8 @@ The **Registration** page also has an optional **Local employee** form. These pr
 and their attendance remain only in the device's PostgreSQL database; their events are
 never sent to ERP. They are matched alongside the synchronized ERP catalog.
 
+Use **Update from ERP** on the **Registration** page when an immediate full catalog refresh is needed. People no longer returned by ERP remain in local PostgreSQL as inactive, with their audit history retained, and are excluded from FaceID matching.
+
 If the current ERP `persons/sync` endpoint does not provide names and official photo
 URLs, use the controlled one-time catalog bootstrap documented in the
 [PostgreSQL runbook](docs/POSTGRESQL_RUNBOOK.md#controlled-erp-catalog-bootstrap).

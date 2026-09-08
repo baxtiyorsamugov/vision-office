@@ -135,6 +135,69 @@ class EdgeServiceTests(unittest.TestCase):
         finally:
             session.close()
 
+    def test_full_sync_marks_absent_person_inactive_and_keeps_history_record(self):
+        present_id = "b1d0d2f4-6a2e-4f3f-a42a-990063865000"
+        removed_id = "b2d0d2f4-6a2e-4f3f-a42a-990063865000"
+        session = self.service.Session()
+        try:
+            self.service._upsert_person(session, {
+                "id": present_id,
+                "person_type": "employee",
+                "fio": "Current Person",
+                "embedding": [0.1] * 512,
+            })
+            self.service._upsert_person(session, {
+                "id": removed_id,
+                "person_type": "employee",
+                "fio": "Former Person",
+                "embedding": [0.2] * 512,
+            })
+            session.commit()
+        finally:
+            session.close()
+
+        self.service._request_json = lambda *args, **kwargs: [{
+            "id": present_id,
+            "person_type": "employee",
+            "active": True,
+            "embedding": [0.1] * 512,
+        }]
+        self.assertTrue(self.service.sync_if_due())
+
+        session = self.service.Session()
+        try:
+            former_person = session.get(RemotePerson, removed_id)
+            self.assertIsNotNone(former_person)
+            self.assertFalse(former_person.active)
+        finally:
+            session.close()
+        identities, _embeddings = self.service.cache_embeddings()
+        self.assertEqual([identity["person_id"] for identity in identities], [present_id])
+
+    def test_manual_full_sync_request_bypasses_hourly_schedule_in_sync_worker(self):
+        session = self.service.Session()
+        try:
+            state = self.service._state(session)
+            state.last_full_sync_at = self.service._utcnow()
+            state.last_incremental_sync_at = self.service._utcnow()
+            session.commit()
+        finally:
+            session.close()
+
+        requested_at = self.service.request_full_sync()
+        queries = []
+        self.service._request_json = lambda *args, **kwargs: queries.append(kwargs["query"]) or []
+        self.assertTrue(self.service.sync_if_due())
+        self.assertEqual(len(queries), 1)
+        self.assertNotIn("updated_since", queries[0])
+
+        session = self.service.Session()
+        try:
+            state = self.service._state(session)
+            self.assertGreaterEqual(self.service._as_utc(state.last_manual_full_sync_at), requested_at)
+        finally:
+            session.close()
+
     def test_invalid_remote_person_without_photo_is_recorded_locally(self):
         session = self.service.Session()
         try:

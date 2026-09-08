@@ -38,6 +38,17 @@ Response is a JSON array. Each item must contain:
 
 The Edge device synchronizes this catalog hourly by default. An operator may add approved local reference photos to a synchronized person. Those photos and embeddings are never written back to ERP and remain attached to the person after future ERP updates; each valid local photo contributes an additional local matching vector.
 
+### Full snapshot and inactive people
+
+An hourly request with `updated_since` updates only changed people. A request without `updated_since` is a full, authoritative catalog snapshot. The Edge runs that full reconciliation at startup, every 24 hours by default, and after an operator requests **Update from ERP** in the dashboard.
+
+- A person returned with `active: false`, or absent from a successfully completed full snapshot, stays in local PostgreSQL with `active: false`.
+- FaceID excludes inactive ERP people immediately after its regular local-cache refresh. Their local audit history, official cached photo and operator-added reference photos are retained.
+- If ERP restores the same person ID with `active: true`, the existing local record is reactivated and updated.
+- Local-only employee profiles are a separate table and are never affected by ERP reconciliation.
+
+The dashboard button writes a durable request to PostgreSQL only. The isolated `edge-sync` service performs the actual network request, so the UI and camera process never hold ERP credentials or make competing ERP calls.
+
 ## Production Contract Gap Observed 2026-09-07
 
 The currently deployed production `persons/sync` endpoint returns only `id`, `person_type`, `embedding`, `active` and `updated_at`. This is insufficient for the Edge integration: it cannot display a person name, preserve an ERP identifier, or download a source photo when the embedding is missing.

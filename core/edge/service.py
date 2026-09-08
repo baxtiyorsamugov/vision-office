@@ -68,6 +68,27 @@ class EdgeService:
         self.sync_if_due()
         self.deliver_due_events()
 
+    def request_full_sync(self) -> datetime:
+        """Queue an operator-requested full catalog refresh for the sync worker.
+
+        The dashboard writes only this durable request.  It never contacts ERP,
+        which keeps all ERP traffic owned by the single edge-sync process.
+        """
+        if not self.settings.configured:
+            raise ValueError("ERP integration must be configured before requesting a sync")
+        requested_at = self._utcnow()
+        session = self.Session()
+        try:
+            state = self._state(session)
+            state.manual_full_sync_requested_at = requested_at
+            session.commit()
+            return requested_at
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
     def sync_if_due(self) -> bool:
         if not self.settings.configured:
             return False
@@ -75,11 +96,17 @@ class EdgeService:
         try:
             state = self._state(session)
             now = self._utcnow()
-            full_due = state.last_full_sync_at is None or now - self._as_utc(state.last_full_sync_at) >= timedelta(seconds=self.settings.full_sync_interval_seconds)
+            scheduled_full_due = state.last_full_sync_at is None or now - self._as_utc(state.last_full_sync_at) >= timedelta(seconds=self.settings.full_sync_interval_seconds)
+            manual_requested_at = state.manual_full_sync_requested_at
+            manual_full_due = manual_requested_at is not None and (
+                state.last_manual_full_sync_at is None
+                or self._as_utc(state.last_manual_full_sync_at) < self._as_utc(manual_requested_at)
+            )
+            full_sync = scheduled_full_due or manual_full_due
             incremental_due = state.last_incremental_sync_at is None or now - self._as_utc(state.last_incremental_sync_at) >= timedelta(seconds=self.settings.sync_interval_seconds)
-            if not full_due and not incremental_due:
+            if not full_sync and not incremental_due:
                 return False
-            since = None if full_due else state.last_incremental_sync_at
+            since = None if full_sync else state.last_incremental_sync_at
         finally:
             session.close()
 
@@ -92,14 +119,31 @@ class EdgeService:
         session = self.Session()
         try:
             state = self._state(session)
+            synced_person_ids: set[str] = set()
             for person in people:
-                self._upsert_person(session, person)
+                person_id = self._upsert_person(session, person)
+                if person_id:
+                    synced_person_ids.add(person_id)
             completed_at = self._utcnow()
+            deactivated_count = 0
+            if full_sync:
+                # A response without updated_since is an authoritative catalog
+                # snapshot. Retain absent people for audit/history, but remove
+                # them from the active FaceID cache.
+                deactivated_count = self._deactivate_absent_people(session, synced_person_ids, completed_at)
             state.last_incremental_sync_at = completed_at
             if since is None:
                 state.last_full_sync_at = completed_at
+            if manual_full_due and state.manual_full_sync_requested_at is not None and self._as_utc(state.manual_full_sync_requested_at) <= self._as_utc(manual_requested_at):
+                state.last_manual_full_sync_at = completed_at
             state.last_error = None
             session.commit()
+            logger.info(
+                "ERP people sync completed full=%s received=%s deactivated=%s",
+                full_sync,
+                len(synced_person_ids),
+                deactivated_count,
+            )
             return True
         except Exception as error:
             session.rollback()
@@ -123,11 +167,23 @@ class EdgeService:
                 return result
             offset += self.settings.page_size
 
-    def _upsert_person(self, session, payload: dict[str, Any]) -> None:
+    def _deactivate_absent_people(self, session, synced_person_ids: set[str], completed_at: datetime) -> int:
+        query = session.query(RemotePerson).filter(RemotePerson.active.is_(True))
+        if synced_person_ids:
+            query = query.filter(~RemotePerson.id.in_(synced_person_ids))
+        return query.update(
+            {
+                RemotePerson.active: False,
+                RemotePerson.updated_at: completed_at,
+            },
+            synchronize_session=False,
+        )
+
+    def _upsert_person(self, session, payload: dict[str, Any]) -> str | None:
         person_id = str(payload.get("id", ""))
         person_type = payload.get("person_type")
         if not person_id or person_type not in PERSON_TYPES:
-            return
+            return None
         embedding = payload.get("embedding")
         person = session.get(RemotePerson, person_id)
         if person is None:
@@ -154,6 +210,7 @@ class EdgeService:
             person.embedding_error = "ERP embedding is missing or invalid; photo fallback is required"
             self._create_embedding_from_photo(person)
         person.updated_at = self._utcnow()
+        return person_id
 
     @staticmethod
     def _valid_embedding(embedding: Any) -> bool:

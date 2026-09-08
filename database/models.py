@@ -69,6 +69,8 @@ class EdgeSyncState(Base):
     id = Column(Integer, primary_key=True, default=1)
     last_full_sync_at = Column(DateTime(timezone=True), nullable=True)
     last_incremental_sync_at = Column(DateTime(timezone=True), nullable=True)
+    manual_full_sync_requested_at = Column(DateTime(timezone=True), nullable=True)
+    last_manual_full_sync_at = Column(DateTime(timezone=True), nullable=True)
     last_error = Column(Text, nullable=True)
 
 

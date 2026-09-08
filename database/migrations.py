@@ -18,6 +18,13 @@ MIGRATIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "ALTER TABLE access_log_outbox ADD COLUMN endpoint VARCHAR(255) NOT NULL DEFAULT '/api/v1/learning-centers/access-logs'",
         ),
     ),
+    (
+        "20260908_manual_full_erp_sync",
+        (
+            "ALTER TABLE edge_sync_state ADD COLUMN manual_full_sync_requested_at TIMESTAMP",
+            "ALTER TABLE edge_sync_state ADD COLUMN last_manual_full_sync_at TIMESTAMP",
+        ),
+    ),
 )
 
 

@@ -56,6 +56,14 @@ Invoke-RestMethod http://127.0.0.1:8000/api/v1/health
 
 The dashboard's **Synchronization** page displays the cached people, sync error, queue state, and local reference-photo count.
 
+### Manual ERP refresh
+
+When a person was added, changed or deactivated in ERP and an immediate update is needed, open `http://127.0.0.1:8501`, select **Registration**, then select **Update from ERP**. The dashboard records the request locally; `edge-sync` picks it up within its normal delivery polling interval. It performs a complete catalog snapshot, so people absent from ERP are retained in PostgreSQL as inactive and removed from FaceID matching. Nothing is deleted from local audit history or operator-added reference photos.
+
+Do not start a second `edge-sync` container or run the import tool for an ordinary refresh. The button uses the device API key already stored in local settings and does not require an administrator password.
+
+The currently deployed compact device-sync contract can create a matching record for a new person only when a valid embedding is returned. It cannot supply a new name or official photo URL until ERP extends that contract. For a new person needing those fields today, use the controlled bootstrap below.
+
 ## Controlled ERP Catalog Bootstrap
 
 Use this whenever the production `persons/sync` endpoint lacks names and official photo URLs and people or main photos have changed in ERP. It imports the current approved backend catalog into the local PostgreSQL cache and creates each face embedding on the Edge device. It does not store the temporary administrator password or access token.
