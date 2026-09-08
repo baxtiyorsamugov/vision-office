@@ -41,3 +41,5 @@ data/previews/
 # Local configuration and credentials
 config/settings.yaml
 .env
+
+.idea
