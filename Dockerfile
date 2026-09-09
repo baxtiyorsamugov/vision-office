@@ -22,9 +22,15 @@ COPY requirements-docker-cpu.txt ./
 
 # CPU wheels keep support services and the default deployment portable.
 # The optional GPU target replaces only the inference runtime packages.
+# The PyTorch CPU index publishes the "+cpu" local version only for x86_64;
+# its aarch64 wheels for the same release carry no suffix. Both are CPU builds.
 RUN python -m pip install --upgrade pip setuptools wheel \
-    && python -m pip install --index-url https://download.pytorch.org/whl/cpu \
-        torch==2.5.1+cpu torchvision==0.20.1+cpu \
+    && if [ "$(uname -m)" = "aarch64" ]; then \
+        TORCH="torch==2.5.1 torchvision==0.20.1"; \
+    else \
+        TORCH="torch==2.5.1+cpu torchvision==0.20.1+cpu"; \
+    fi \
+    && python -m pip install --index-url https://download.pytorch.org/whl/cpu $TORCH \
     && python -m pip install -r requirements-docker-cpu.txt
 
 FROM dependencies AS cpu

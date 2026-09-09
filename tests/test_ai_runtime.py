@@ -43,7 +43,7 @@ class RuntimeTests(unittest.TestCase):
 
     def test_faceid_session_initialization_falls_back(self):
         cpu_app = MagicMock()
-        with patch.object(FaceRecognizer, "_cuda_runtime_ready", return_value=True), patch.object(FaceRecognizer, "_create_app", side_effect=[RuntimeError("missing cudnn"), cpu_app]):
+        with patch("core.ai.recognizer.ensure_faceid_models_available"), patch.object(FaceRecognizer, "_cuda_runtime_ready", return_value=True), patch.object(FaceRecognizer, "_create_app", side_effect=[RuntimeError("missing cudnn"), cpu_app]):
             recognizer = FaceRecognizer()
             self.assertFalse(recognizer.using_cuda)
             self.assertIs(recognizer.app, cpu_app)
@@ -89,7 +89,7 @@ class RuntimeTests(unittest.TestCase):
         engine.shared_memory = {1: {"name": "Previous identity"}}
         engine.results_lock = threading.Lock()
         engine.last_processed_data = [{"id": 1}]
-        with patch("core.ai.engine.YOLO"), patch("torch.cuda.empty_cache"):
+        with patch("core.ai.engine.detector_model_path", return_value="test-model.pt"), patch("core.ai.engine.YOLO"), patch("torch.cuda.empty_cache"):
             engine._fallback_to_cpu(RuntimeError("OOM"))
         self.assertFalse(engine.using_cuda)
         self.assertEqual(engine.tracker_generation, 1)
