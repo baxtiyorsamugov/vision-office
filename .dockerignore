@@ -5,6 +5,7 @@ __pycache__
 *.pyc
 *.zip
 .env
+docker-compose.override.yml
 config/settings.yaml
 data/
 models/

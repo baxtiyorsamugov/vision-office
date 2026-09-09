@@ -1,5 +1,5 @@
 # Stable CPU image for the Vision Office Edge services.
-FROM python:3.10-slim-bookworm
+FROM python:3.10-slim-bookworm AS dependencies
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -20,16 +20,43 @@ RUN apt-get update \
 
 COPY requirements-docker-cpu.txt ./
 
-# CPU wheels make the default deployment portable. Docker GPU support is an
-# optional future profile; the Windows native installer remains available.
+# CPU wheels keep support services and the default deployment portable.
+# The optional GPU target replaces only the inference runtime packages.
 RUN python -m pip install --upgrade pip setuptools wheel \
     && python -m pip install --index-url https://download.pytorch.org/whl/cpu \
         torch==2.5.1+cpu torchvision==0.20.1+cpu \
     && python -m pip install -r requirements-docker-cpu.txt
 
+FROM dependencies AS cpu
 COPY . ./
 RUN mkdir -p /app/data /app/models /app/config \
+    && sed -i 's/\r$//' docker/entrypoint.sh \
     && chmod +x docker/entrypoint.sh
 
 ENTRYPOINT ["./docker/entrypoint.sh"]
 CMD ["python", "main.py"]
+
+# CUDA libraries are supplied by official PyTorch wheels, not host CUDA installs.
+FROM dependencies AS gpu-dependencies
+ARG GPU_PROFILE=cu124
+RUN python -m pip uninstall -y torch torchvision onnxruntime \
+    && case "$GPU_PROFILE" in \
+         cu124) TORCH=2.5.1+cu124; VISION=0.20.1+cu124 ;; \
+         cu128) TORCH=2.7.1+cu128; VISION=0.22.1+cu128 ;; \
+         *) echo "Unsupported GPU_PROFILE"; exit 2 ;; \
+       esac \
+    && python -m pip install --index-url https://download.pytorch.org/whl/$GPU_PROFILE \
+         "torch==$TORCH" "torchvision==$VISION" \
+    && python -m pip install onnxruntime-gpu==1.23.2 \
+    && python -m pip check
+
+FROM gpu-dependencies AS gpu
+COPY . ./
+RUN mkdir -p /app/data /app/models /app/config \
+    && sed -i 's/\r$//' docker/entrypoint.sh \
+    && chmod +x docker/entrypoint.sh
+ENTRYPOINT ["./docker/entrypoint.sh"]
+CMD ["python", "main.py"]
+
+# Plain docker compose remains CPU-only on any machine.
+FROM cpu AS final

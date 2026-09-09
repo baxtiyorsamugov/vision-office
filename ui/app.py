@@ -483,6 +483,9 @@ def render_performance_panel():
             pd.DataFrame([{
                 "Камера": item.get("camera_name") or item.get("camera_id"),
                 "Статус": item.get("stream_status", "—"),
+                "YOLO": item.get("yolo_device", "—"),
+                "FaceID": item.get("face_device", "—"),
+                "Причина CPU": item.get("yolo_fallback_reason") or item.get("face_fallback_reason") or "—",
                 "Захват FPS": item.get("capture_fps", 0),
                 "Детекция FPS": item.get("detection_fps", 0),
                 "Возраст кадра, ms": item.get("frame_age_ms", "—"),
@@ -504,7 +507,8 @@ def render_performance_panel():
         f"FaceID задач: {status.get('face_tasks', 0)} · "
         f"Пропущено задач: {status.get('face_dropped', 0)} · "
         f"Очередь FaceID: {status.get('face_queue_size', '—')} · "
-        f"ONNX: {', '.join(status.get('onnx_providers', []))}"
+        f"FaceID: {status.get('face_device', '—')} · "
+        f"Причина CPU: {status.get('yolo_fallback_reason') or status.get('face_fallback_reason') or '—'}"
     )
 
 

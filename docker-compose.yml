@@ -7,6 +7,8 @@ x-common-environment: &common-environment
   # Ultralytics only stores transient runtime preferences here. Keep them out
   # of the Windows bind mount, whose permissions differ from Linux containers.
   YOLO_CONFIG_DIR: /tmp/vision-office-yolo
+  VISION_OFFICE_DEVICE: cpu
+  VISION_OFFICE_CPU_THREADS: "2"
 
 x-common: &common
   build:

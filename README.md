@@ -9,6 +9,7 @@ Vision Office is a local face-recognition and attendance platform for RTSP camer
 - [ERP adapter and mock contract](docs/ERP_CONTRACT.md)
 - [Operations runbook](docs/OPERATIONS_RUNBOOK.md)
 - [Docker deployment runbook](docs/DOCKER_RUNBOOK.md)
+- [Automatic GPU/CPU selection and recovery](docs/GPU_RUNTIME.md)
 - [Local PostgreSQL, hourly ERP sync and reference-photo runbook](docs/POSTGRESQL_RUNBOOK.md)
 - [Unknown visitors catalog runbook](docs/UNKNOWN_VISITORS_RUNBOOK.md)
 - [UI design system](docs/UI_DESIGN_SYSTEM.md)
@@ -21,14 +22,18 @@ Add two active camera entries to the local `config/settings.yaml`, assigning `ev
 
 ## Install on another Windows computer
 
-For a normal installation, run the automatic installer from the project folder:
+For a new deployment, follow the [USB installation guide](INSTALL_USB.md).
+Prepare current code, model weights and device-local settings as described there,
+then start Docker and optionally import the full ERP employee catalog:
 
 ```powershell
-Set-ExecutionPolicy -Scope Process Bypass
-.\install_vision_office.ps1
+powershell -ExecutionPolicy Bypass -File .\start_vision_office.ps1
+powershell -ExecutionPolicy Bypass -File .\import_erp.ps1
 ```
 
-It uses a fixed dependency set and selects a modern NVIDIA GPU, GTX 10/Pascal GPU, or CPU profile automatically. Detailed flash-drive instructions are in `INSTALL_USB.md`.
+The launcher probes real YOLO/FaceID models on the target GPU and falls back to
+CPU if CUDA is unavailable or fails preflight. The native `install_vision_office.ps1`
+remains a separate option, not a prerequisite for Docker.
 
 ## Local launch
 
@@ -50,13 +55,14 @@ Open http://127.0.0.1:8501 in a browser.
 Docker runs PostgreSQL, the shared ERP synchronizer, low-priority unknown-face clusterer, camera/AI worker, API and dashboard as separate services. It preserves local settings, event photos and models on the host computer; PostgreSQL uses its own durable Docker volume:
 
 ```powershell
-docker compose build --pull
-docker compose up -d
+powershell -ExecutionPolicy Bypass -File .\start_vision_office.ps1
 docker compose ps
 ```
 
-Open http://127.0.0.1:8501. The default container image is a stable CPU profile;
-the native Windows install remains the validated GPU path. See the [Docker runbook](docs/DOCKER_RUNBOOK.md) before first launch.
+Open http://127.0.0.1:8501. GPU acceleration is reserved for `vision-worker`;
+support services stay CPU-only. Use `-Profile cpu` to force the portable CPU
+runtime. The launcher saves the selection locally for subsequent `docker compose up -d`.
+See the [Docker runbook](docs/DOCKER_RUNBOOK.md) before first launch.
 
 For a separate low-impact local camera window, open http://127.0.0.1:8000/monitor. It displays bounded worker-generated preview frames and never opens a second RTSP connection.
 
@@ -94,18 +100,22 @@ Operator-facing times use `edge_integration.timezone` (default: `Asia/Tashkent`)
 
 If the current ERP `persons/sync` endpoint does not provide names and official photo
 URLs, use the controlled one-time catalog bootstrap documented in the
-[PostgreSQL runbook](docs/POSTGRESQL_RUNBOOK.md#controlled-erp-catalog-bootstrap).
+[interactive ERP import guide](docs/ERP_ONETIME_IMPORT.md).
 It does not persist administrator credentials and is only needed until the ERP device
 sync contract is extended.
 
 ## Transfer archive
 
+For a new Docker installation, create the code archive below, then copy model
+weights and device settings separately as described in the [USB guide](INSTALL_USB.md).
+
 ```powershell
-.\create_transfer_archive.ps1
+.\create_update_archive.ps1
 ```
 
 ## Updating installed computers
 
 For normal code and UI updates, create the safe code-only archive with `./create_update_archive.ps1`. It does not include or overwrite each computer's database, camera settings, face photos, models, or installed environment. See [UPDATE_OTHER_PC.md](UPDATE_OTHER_PC.md).
 
-This creates a portable `acs2-transfer.zip` with a consistent SQLite snapshot.
+The legacy `create_transfer_archive.ps1` creates a SQLite-based archive and is
+not the PostgreSQL/Docker installation workflow.

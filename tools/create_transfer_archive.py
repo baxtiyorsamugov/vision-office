@@ -17,6 +17,8 @@ SKIPPED_DIRECTORIES = {
 }
 SKIPPED_FILES = {"acs2.zip", "acs2-transfer.zip", "acs2-update.zip"}
 SENSITIVE_FILES = {
+    Path(".env"),
+    Path("docker-compose.override.yml"),
     Path("config/settings.yaml"),
     Path("data/admin_access_token.txt"),
     Path("data/runtime_status.json"),

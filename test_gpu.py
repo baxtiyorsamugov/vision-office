@@ -1,25 +1,14 @@
-import sys
+"""Native Windows CUDA diagnostic using real kernels, not exact SM list matches."""
+from core.ai.runtime import torch_device
 
-import torch
 
-
-cuda_available = torch.cuda.is_available()
-print(f"CUDA доступна: {cuda_available}")
-
-if not cuda_available:
-    sys.exit(1)
-
-device_name = torch.cuda.get_device_name(0)
-capability = torch.cuda.get_device_capability(0)
-required_architecture = f"sm_{capability[0]}{capability[1]}"
-supported_architectures = torch.cuda.get_arch_list()
-
-print(f"Устройство: {device_name}")
-print(f"Compute capability: {capability[0]}.{capability[1]}")
-print(f"PyTorch поддерживает: {', '.join(supported_architectures)}")
-
-if required_architecture not in supported_architectures:
-    print(f"ОШИБКА: текущий PyTorch не поддерживает {required_architecture}.")
-    sys.exit(2)
-
-print("GPU совместим с установленным PyTorch.")
+if __name__ == "__main__":
+    device, reason = torch_device()
+    print(f"PyTorch device: {device}")
+    if reason:
+        print(reason)
+    if device == "cuda":
+        import torch
+        print(f"GPU: {torch.cuda.get_device_name(0)}")
+        print(f"CUDA kernels and NumPy bridge: OK; torch={torch.__version__}")
+    raise SystemExit(0 if device == "cuda" else 1)

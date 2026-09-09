@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.request import urlopen
@@ -32,9 +33,14 @@ def _worker_ok() -> bool:
         }
         statuses = {}
         for status_file in (PROJECT_ROOT / "data").glob("runtime_status_*.json"):
+            if time.time() - status_file.stat().st_mtime > 60:
+                continue
             value = json.loads(status_file.read_text(encoding="utf-8"))
             statuses[str(value.get("camera_id"))] = value
-        return bool(active_ids) and all(statuses.get(camera_id, {}).get("running") for camera_id in active_ids)
+        return bool(active_ids) and all(
+            statuses.get(camera_id, {}).get("running") and statuses.get(camera_id, {}).get("ai_ready")
+            for camera_id in active_ids
+        )
     except (OSError, ValueError, TypeError):
         return False
 

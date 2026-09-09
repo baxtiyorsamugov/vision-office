@@ -33,6 +33,7 @@
 
 | Date | Status | Result | Evidence |
 | --- | --- | --- | --- |
+| 2026-09-09 | DONE | Added target-device GPU/CPU selection, real-model preflight, CPU fallback, CUDA-safe spawned AI workers, bounded CPU threads/ORT workspaces and actual runtime columns in the dashboard. Updated USB/Docker instructions; device-specific overrides stay local. | 60 tests on Windows and isolated Linux; launcher profile/failure tests; concurrent two-camera CPU/CUDA probes; live GPU -> CPU -> GPU and final restart; both streams connected, CUDA providers confirmed and dashboard screenshot checked. Physical Pascal/Blackwell and 30-minute peak-load acceptance remain pending. |
 | 2026-09-08 | DONE | Applied the approved reference across the dashboard, directories, profiles, registration, analytics, API page and camera monitor. Extracted `ui/theme.css`, aligned native table colors, added actual hourly event visualization and a cached camera snapshot, fixed single-event chart sizing and responsive form/metric layouts. | Five-page Streamlit AppTest without exceptions; final analytics/registration/profile recheck; desktop/mobile screenshots compared with the supplied reference; compile and diff checks; UI/API container rebuilds, worker/API health probes and live monitor at 25 capture / 13 detection FPS. Recognition and sync processes were not restarted. |
 | 2026-09-03 | DONE | Documentation governance, ERP mock contract, runbook and engineering playbook created. | This file; `docs/` documents; README links. |
 | 2026-09-03 | DONE | Foundation, mock ERP cache/photo fallback, local recognition events, durable delivery, camera supervisor and Health Checker implemented. | 16 unit tests, CPU install sanity check, API import, real SQLite migration smoke check and headless video pipeline run (22.6 capture FPS, 16 ms frame age). |
@@ -56,6 +57,8 @@
 
 | Task | Status | Modules | Done when |
 | --- | --- | --- | --- |
+| Portable GPU/CPU runtime | DONE | `core/ai/runtime.py`, `engine.py`, `recognizer.py`, `Dockerfile`, `docker-compose.gpu.yml`, `start_vision_office.ps1`, `docker/check_runtime.py`, `docker/healthcheck.py`, installation docs | 2026-09-09: 60 tests pass in Windows and isolated Linux; launcher failure/profile tests pass. RTX A1000 4 GB: real concurrent CPU/CUDA probes, live GPU -> CPU -> GPU switch and final worker restart pass; both streams connected, both YOLO/FaceID on CUDA, capture about 25 FPS and detection 12-13 FPS. GPU image without GPU access selects CPU. Dependencies: NVIDIA driver/WSL2 and local models. Tests: `tests/test_ai_runtime.py`, `tests/test_runtime_launcher.ps1`, `tests/test_docker_assets.py`. Physical Pascal/Blackwell and extended peak-load testing remain TODO, not certified by this result. |
+| Cross-device runtime acceptance | TODO | `docs/GPU_RUNTIME.md`, target computers | Run the launcher on physical GTX 1050 Ti and Blackwell, validate cu128 build on target, and complete 30-minute peak-load/VRAM and recovery checks. Dependency: access to target hardware. Preserve synthetic and live measurements separately. |
 | Documentation governance | DONE | `ROADMAP.md`, `docs/`, `README.md` | Documents are linked and describe current project truth. |
 | Structured logging | DONE | `core/logging_setup.py`, runtime entrypoints | Rotating UTF-8 logs are created and carry process/module context. |
 | Safe SQLite migrations | DONE | `database/migrations.py`, `database/` | Existing databases receive additive schema changes without losing attendance history. |
@@ -84,5 +87,27 @@
 5. Add an entry to **Completed work** for every completed stage or meaningful milestone.
 
 ## Next step
+
+GPU runtime delivered on 2026-09-09; automatic startup, CPU fallback, explicit
+CPU selection and return to GPU verified on this device. The service healthcheck
+now requires fresh status and completed AI warmup. CPU thread limits are reapplied
+after Ultralytics device setup. No ERP contract, database schema, recognition
+threshold, model resolution or biometric retention rules were changed.
+See `docs/GPU_RUNTIME.md` for measurements, limits and per-device acceptance.
+Do not copy the generated `docker-compose.override.yml` to other computers.
+Remaining UI observation: an old `test_video` status file is included in the
+dashboard's historical camera count; the two configured live streams were checked
+separately. Runtime-status filtering is a follow-up, not an active third camera.
+
+USB installation documentation updated for Docker/PostgreSQL and interactive
+ERP bootstrap in `INSTALL_USB.md`; README entry points aligned. Required files
+and command syntax verified locally. Clean target-PC installation remains a
+manual acceptance step; no services restarted for this documentation update.
+
+One-time authenticated ERP import: CLI and PowerShell launcher implemented in
+`tools/import_erp_catalog.py` and `import_erp.ps1`; instructions in
+`docs/ERP_ONETIME_IMPORT.md`. Four isolated tests pass for idempotency, device
+scope, incomplete FaceID reporting and external-photo credential isolation.
+Target-device Docker/login UAT remains TODO; no production import performed.
 
 Extend the production ERP sync contract with identity metadata so new people and photo changes appear automatically. Then run the two-camera acceptance with the actual entry and exit RTSP streams, followed by production Telegram UAT and the 30-minute stability benchmark.

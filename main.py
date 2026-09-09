@@ -36,6 +36,7 @@ def run_camera(camera: CameraSettings, ai_settings: dict, log_level: str = "INFO
     configure_logging(log_level)
     init_db()
     logger.info("Starting camera camera_id=%s event_type=%s", camera.id, camera.event_type)
+    write_camera_runtime_status(camera.id, {"running": False, "ai_ready": False})
     ai = AI_Engine(
         detection_imgsz=ai_settings.get("face_detection_imgsz", 960),
         detection_fps=ai_settings.get("face_detection_fps", 20),
@@ -57,6 +58,8 @@ def run_camera(camera: CameraSettings, ai_settings: dict, log_level: str = "INFO
     last_status_update = 0.0
     try:
         while True:
+            if not ai.worker.is_alive() or not ai.detector_thread.is_alive():
+                raise RuntimeError("AI worker stopped; camera process needs restart")
             if time.monotonic() - last_status_update >= 1:
                 # Publish even without a frame. This lets Health Checker detect a frozen reader.
                 write_camera_runtime_status(camera.id, {

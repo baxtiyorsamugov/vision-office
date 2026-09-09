@@ -14,7 +14,10 @@ Docker Compose runs Vision Office as independent services:
 | `api` | Read-only FastAPI integration API. | `config/`, `data/` |
 | `ui` | Streamlit operations dashboard. It does not start duplicate workers in Docker. | `config/`, `data/`, `models/` |
 
-The default image is CPU-only and headless. It does not open an OpenCV window; use the browser dashboard and logs instead. The native Windows installation remains the current GPU option. A GPU Docker profile is deliberately not enabled until it is validated against the exact NVIDIA driver and GPU on the target device.
+The base image is CPU-only and headless. The automatic launcher validates a CUDA
+image on the target device before enabling it for `vision-worker` only. All other
+services remain CPU-only. No OpenCV desktop window is opened; use the browser
+dashboard and monitor. See [GPU/CPU selection and recovery](GPU_RUNTIME.md).
 
 All Python dependencies, including the ByteTrack `lap` package, are baked into the image. A production container must not install Python packages while it is processing camera frames. The container entrypoint initializes Ultralytics' nonessential temporary preferences before Python starts, so Windows mount permissions cannot affect the worker.
 
@@ -57,8 +60,7 @@ models/insightface/models/buffalo_l/
 Run all commands from the project root:
 
 ```powershell
-docker compose build --pull
-docker compose up -d
+powershell -ExecutionPolicy Bypass -File .\start_vision_office.ps1
 docker compose ps
 ```
 
@@ -68,6 +70,13 @@ Expected result:
 - `vision-worker`, `edge-sync`, `unknown-clusterer`, `api` and `ui` are `Up`; API, UI, worker and unknown clusterer become `healthy` after startup.
 - Dashboard: http://127.0.0.1:8501
 - API documentation: http://127.0.0.1:8000/docs
+
+The launcher saves the verified selection in ignored `docker-compose.override.yml`.
+Do not copy that file to another computer. `-Profile cpu` forces CPU;
+`-CheckOnly` probes without saving a profile and restores a previously running
+camera worker. Preflight temporarily stops cameras to free GPU memory; schedule
+it during maintenance. Ordinary `docker compose up -d` reuses the saved profile
+without rerunning hardware selection.
 
 The ports bind only to `127.0.0.1` by default. Do not expose the API to the LAN until an API key and allowed CORS origins are configured.
 
@@ -136,8 +145,7 @@ Copy-Item .\config\settings.yaml ".\backups\settings-$stamp.yaml"
 
 # Update only tracked project code, rebuild, then start services.
 git pull --ff-only
-docker compose build --pull
-docker compose up -d
+powershell -ExecutionPolicy Bypass -File .\start_vision_office.ps1
 docker compose ps
 ```
 

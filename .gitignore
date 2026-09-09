@@ -41,3 +41,4 @@ data/previews/
 # Local configuration and credentials
 config/settings.yaml
 .env
+docker-compose.override.yml

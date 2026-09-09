@@ -1,0 +1,19 @@
+# Candidate GPU configuration. Applied only after the runtime probe succeeds.
+services:
+  vision-worker:
+    image: vision-office-gpu:${VISION_OFFICE_GPU_PROFILE:-cu124}
+    build:
+      target: gpu
+      args:
+        GPU_PROFILE: ${VISION_OFFICE_GPU_PROFILE:-cu124}
+    environment:
+      VISION_OFFICE_DEVICE: auto
+      CUDA_VISIBLE_DEVICES: "${VISION_OFFICE_GPU_INDEX:-0}"
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

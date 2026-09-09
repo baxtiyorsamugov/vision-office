@@ -19,6 +19,7 @@ SKIPPED_DIRECTORIES = {
 }
 SKIPPED_FILES = {
     ".env",
+    "docker-compose.override.yml",
     "acs2-transfer.zip",
     "acs2-update.zip",
     "settings.yaml",

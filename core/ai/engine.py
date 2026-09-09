@@ -9,6 +9,7 @@ import torch
 from collections import deque
 from pathlib import Path
 from ultralytics import YOLO
+from core.ai.runtime import limit_torch_threads, torch_device
 
 ANALYZING_STATUS = "Анализ..."
 SEARCHING_STATUS = "Поиск лица..."
@@ -110,6 +111,8 @@ def face_recognition_worker(input_queue, shared_memory, face_timings, face_metri
     print("🤖 [Worker] Разогрев нейросети...")
     dummy_img = np.zeros((112, 112, 3), dtype=np.uint8)
     recognizer.get_embedding(dummy_img)
+    face_metrics["device"] = "CUDA" if recognizer.using_cuda else "CPU"
+    face_metrics["fallback_reason"] = recognizer.fallback_reason
     print("🤖 [Worker] ГОТОВ К БОЮ!")
 
     while True:
@@ -133,6 +136,8 @@ def face_recognition_worker(input_queue, shared_memory, face_timings, face_metri
             
             face_started = time.perf_counter()
             embedding = recognizer.get_embedding(face_img)
+            face_metrics["device"] = "CUDA" if recognizer.using_cuda else "CPU"
+            face_metrics["fallback_reason"] = recognizer.fallback_reason
             face_ms = (time.perf_counter() - face_started) * 1000
             face_timings.append(face_ms)
             if len(face_timings) > 100:
@@ -216,15 +221,18 @@ class AI_Engine:
         self.event_type = event_type
         self.detection_imgsz = max(640, int(detection_imgsz))
         self.detection_interval_sec = 1 / max(1, min(30, float(detection_fps)))
-        self.using_cuda = torch.cuda.is_available()
-        if self.using_cuda:
-            torch.backends.cudnn.benchmark = True
+        self.using_cuda = False
+        self.fallback_reason = None
+        self.detector_ready = False
+        self.tracker_generation = 0
         self.inference_options = {
             "device": 0 if self.using_cuda else "cpu",
             "imgsz": self.detection_imgsz,
         }
-        print(f"[AI] YOLO device: {'CUDA:0 (FP32)' if self.using_cuda else 'CPU'}")
-        self.manager = mp.Manager()
+        print("[AI] Selecting YOLO runtime...")
+        # CUDA cannot be reinitialized safely in Linux fork children.
+        self.mp_context = mp.get_context("spawn")
+        self.manager = self.mp_context.Manager()
         self.shared_memory = self.manager.dict()
         self.last_retry_at = {}
         self.track_observations = {}
@@ -241,14 +249,14 @@ class AI_Engine:
         self.last_metrics_write_at = 0.0
         
         # 🔥 СУПЕР-ФИКС: Очередь размером в 2 кадра. Никаких пробок!
-        self.input_queue = mp.Queue(maxsize=2)
+        self.input_queue = self.mp_context.Queue(maxsize=2)
         self.face_timings = self.manager.list()
         self.face_metrics = self.manager.dict({"count": 0, "last_ms": None, "dropped": 0})
-        self.edge_stop_event = mp.Event()
+        self.edge_stop_event = self.mp_context.Event()
         self.edge_worker = None
         external_edge_sync = os.getenv("VISION_OFFICE_EXTERNAL_EDGE_SYNC", "").strip().lower() in {"1", "true", "yes", "on"}
         if not external_edge_sync:
-            self.edge_worker = mp.Process(target=edge_delivery_worker, args=(self.edge_stop_event,), daemon=True)
+            self.edge_worker = self.mp_context.Process(target=edge_delivery_worker, args=(self.edge_stop_event,), daemon=True)
             self.edge_worker.start()
 
         # One long-lived CUDA thread is essential. Creating a thread per frame makes
@@ -256,7 +264,7 @@ class AI_Engine:
         self.detector_thread = threading.Thread(target=self._detection_worker, daemon=True)
         self.detector_thread.start()
         
-        self.worker = mp.Process(
+        self.worker = self.mp_context.Process(
             target=face_recognition_worker,
             args=(self.input_queue, self.shared_memory, self.face_timings, self.face_metrics, self.camera_id, self.event_type),
             daemon=True,
@@ -270,13 +278,23 @@ class AI_Engine:
         try:
             self.model.track(warmup_frame, persist=True, tracker="bytetrack.yaml", verbose=False, **self.inference_options)
         except Exception as error:
-            print(f"[AI] Detector warm-up failed: {error}")
+            if self.using_cuda:
+                self._fallback_to_cpu(error)
+                self.model.track(warmup_frame, persist=True, tracker="bytetrack.yaml", verbose=False, **self.inference_options)
+            else:
+                raise
         else:
             print("[AI] Detector ready.")
+        limit_torch_threads()
 
     def _detection_worker(self):
         """Run all YOLO work in one CUDA-owning thread and keep only the newest frame."""
+        device, self.fallback_reason = torch_device()
+        self.using_cuda = device == "cuda"
+        self.inference_options["device"] = 0 if self.using_cuda else "cpu"
+        print(f"[AI] YOLO selected: {device}; reason: {self.fallback_reason or 'compute test passed'}")
         self._warm_up_model()
+        self.detector_ready = True
         while True:
             with self.detection_condition:
                 while self.pending_frame is None and not self.detection_stop_requested:
@@ -327,6 +345,7 @@ class AI_Engine:
                 verbose=False,
                 **self.inference_options,
             )
+            limit_torch_threads()
             elapsed_ms = (time.perf_counter() - started) * 1000
             self.detection_timings.append(elapsed_ms)
             self.detection_started_at.append(time.monotonic())
@@ -338,7 +357,9 @@ class AI_Engine:
 
                 candidates = sorted(zip(boxes, ids), key=lambda item: (item[0][2] - item[0][0]) * (item[0][3] - item[0][1]), reverse=True)
                 for box, track_id in candidates[:MAX_FACES_PER_FRAME]:
-                    track_id = int(track_id)
+                    # A new model resets tracker IDs. Namespace them so queued
+                    # FaceID results from before fallback cannot label a new person.
+                    track_id = self.tracker_generation * 1_000_000_000 + int(track_id)
                     self.track_observations[track_id] = self.track_observations.get(track_id, 0) + 1
                     current_result = self._result_for(track_id, None)
                     current_status = current_result.get("name")
@@ -388,10 +409,30 @@ class AI_Engine:
             with self.results_lock:
                 self.last_processed_data = processed_data
         except Exception as error:
+            if self.using_cuda:
+                self._fallback_to_cpu(error)
             print(f"[AI] Detection error: {error}")
         finally:
             with self.inference_lock:
                 self.inference_in_progress = False
+
+    def _fallback_to_cpu(self, error):
+        self.fallback_reason = f"CUDA YOLO failed: {type(error).__name__}"
+        print(f"[AI] {self.fallback_reason}; switching to CPU.")
+        self.using_cuda = False
+        self.inference_options["device"] = "cpu"
+        self.model = None
+        try:
+            torch.cuda.empty_cache()
+        except Exception:
+            pass
+        self.model = YOLO(detector_model_path())
+        self.tracker_generation += 1
+        self.track_observations.clear()
+        self.last_retry_at.clear()
+        self.shared_memory.clear()
+        with self.results_lock:
+            self.last_processed_data = []
 
     def status_snapshot(self):
         detection = list(self.detection_timings)
@@ -407,7 +448,11 @@ class AI_Engine:
         except (NotImplementedError, OSError):
             queue_size = None
         return {
+            "ai_ready": self.detector_ready and self.face_metrics.get("device") in {"CUDA", "CPU"},
             "yolo_device": "CUDA:0 (FP32)" if self.using_cuda else "CPU",
+            "face_device": self.face_metrics.get("device", "starting"),
+            "yolo_fallback_reason": self.fallback_reason,
+            "face_fallback_reason": self.face_metrics.get("fallback_reason"),
             "detection_fps": round(float(len(recent_detections)), 1),
             "detection_ms_p50": percentile(detection, 50),
             "detection_ms_p95": percentile(detection, 95),
