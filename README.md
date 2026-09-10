@@ -11,6 +11,7 @@ Vision Office is a local face-recognition and attendance platform for RTSP camer
 - [Docker deployment runbook](docs/DOCKER_RUNBOOK.md)
 - [Automatic GPU/CPU selection and recovery](docs/GPU_RUNTIME.md)
 - [Local PostgreSQL, hourly ERP sync and reference-photo runbook](docs/POSTGRESQL_RUNBOOK.md)
+- [Transfer ERP employees, photos and FaceID to another device](docs/CATALOG_TRANSFER_RUNBOOK.md)
 - [Unknown visitors catalog runbook](docs/UNKNOWN_VISITORS_RUNBOOK.md)
 - [UI design system](docs/UI_DESIGN_SYSTEM.md)
 
@@ -36,6 +37,13 @@ CPU if CUDA is unavailable or fails preflight. The native `install_vision_office
 remains a separate option, not a prerequisite for Docker.
 
 ## Local launch
+
+For offline catalog bootstrap on another device of the same learning center,
+use **Employees > ERP > Catalog transfer**: export a ZIP on the source computer,
+then preview and confirm its import on the new one. It preserves ERP IDs and
+does not replace attendance, settings or the existing ERP synchronization.
+The archive contains personal photos and biometrics; keep it private.
+See the [catalog transfer runbook](docs/CATALOG_TRANSFER_RUNBOOK.md).
 
 ```powershell
 cd C:\projects\acs2

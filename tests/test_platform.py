@@ -203,6 +203,9 @@ class PlatformTests(unittest.TestCase):
             logging_setup.LOG_DIR = original_dir
 
     def test_health_checker_records_and_recovers_incident(self):
+        health_file = patch("core.health.HEALTH_FILE", Path(self.tempdir.name) / "health_status.json")
+        health_file.start()
+        self.addCleanup(health_file.stop)
         run_migrations(self.engine)
         checker = HealthChecker(
             HealthSettings(enabled=True, failure_threshold=1),

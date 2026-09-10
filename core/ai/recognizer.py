@@ -29,13 +29,13 @@ def ensure_faceid_models_available() -> None:
 
 
 class FaceRecognizer:
-    def __init__(self, det_size=(320, 320)):
+    def __init__(self, det_size=(320, 320), use_cuda=None):
         ensure_faceid_models_available()
         self.det_size = det_size
         self.fallback_reason = None
-        self.using_cuda = self._cuda_runtime_ready()
+        self.using_cuda = use_cuda is not False and self._cuda_runtime_ready()
         if not self.using_cuda:
-            self.fallback_reason = "CUDA runtime unavailable to FaceID" if wants_cuda() else "CPU explicitly selected"
+            self.fallback_reason = "CUDA runtime unavailable to FaceID" if use_cuda is not False and wants_cuda() else "CPU explicitly selected"
         try:
             self.app = self._create_app(det_size, self.using_cuda)
             if self.using_cuda:

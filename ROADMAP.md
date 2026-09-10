@@ -90,6 +90,26 @@
 
 ## Next step
 
+### ERP catalog transfer (IN PROGRESS, 2026-09-10)
+
+Goal: export ERP employees, primary/additional photos and FaceID vectors into a
+bounded local ZIP; preview and transactionally import into another device without
+touching attendance, local employees, ERP delivery, settings or secrets.
+Modules: `core/catalog_transfer.py`, `ui/catalog_transfer.py`, tests and runbook.
+Done when: duplicate/conflict/rollback/archive-security/model-compatibility tests,
+SQLite and isolated PostgreSQL round trip, real 17-person read-only export and UI
+checks pass. Dependencies: local model files and operator confirmation of the same
+learning center (the existing device configuration does not carry a verified center UUID).
+Progress: bounded archive service, operator UI and USB/runbook instructions implemented.
+SQLite and isolated PostgreSQL transaction/security/sync checks passed; UI action tests pass.
+Read-only production export found 17 ready embeddings but only 16 stored primary photos:
+one existing profile has no photo_path (not an export failure). Do not claim 17 photos.
+Full-suite validation exposed YOLO's global Pillow hook attempting a HEIF plugin install
+on corrupt input; catalog decoding now uses only JPEG/PNG decoders and never that hook.
+Next: repeat full isolated suite, verify the real bundle in disposable PostgreSQL,
+and inspect desktop/mobile UI. Production worker/sync services were already stopped;
+only PostgreSQL and UI were started for this feature, no live FPS acceptance claimed.
+
 GPU runtime delivered on 2026-09-09; automatic startup, CPU fallback, explicit
 CPU selection and return to GPU verified on this device. The service healthcheck
 now requires fresh status and completed AI warmup. CPU thread limits are reapplied

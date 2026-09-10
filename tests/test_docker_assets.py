@@ -33,7 +33,9 @@ class DockerAssetTests(unittest.TestCase):
         self.assertEqual(services["unknown-clusterer"]["healthcheck"]["timeout"], "20s")
 
     def test_docker_healthcheck_is_valid_python(self):
-        py_compile.compile(str(PROJECT_ROOT / "docker" / "healthcheck.py"), doraise=True)
+        with tempfile.TemporaryDirectory() as directory:
+            py_compile.compile(str(PROJECT_ROOT / "docker" / "healthcheck.py"),
+                               cfile=str(Path(directory) / "healthcheck.pyc"), doraise=True)
 
     def test_worker_health_requires_fresh_ai_ready_status(self):
         from docker import healthcheck

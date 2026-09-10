@@ -11,6 +11,13 @@ from core.ai.engine import AI_Engine
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_catalog_faceid_cpu_override_never_initializes_cuda(self):
+        with patch("core.ai.recognizer.ensure_faceid_models_available"), patch.object(FaceRecognizer, "_cuda_runtime_ready") as cuda, patch.object(FaceRecognizer, "_create_app") as create:
+            recognizer = FaceRecognizer(use_cuda=False)
+            cuda.assert_not_called()
+            create.assert_called_once_with((320, 320), False)
+            self.assertEqual(recognizer.fallback_reason, "CPU explicitly selected")
+
     def test_thread_limit_reapplied_after_library_override(self):
         with patch.dict(os.environ, {"VISION_OFFICE_CPU_THREADS": "2"}), patch("torch.get_num_threads", return_value=8), patch("torch.set_num_threads") as setter:
             limit_torch_threads()

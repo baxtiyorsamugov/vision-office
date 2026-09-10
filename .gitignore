@@ -27,6 +27,7 @@ data/unknown_clusterer_status.json
 data/events/
 data/persons/
 data/previews/
+data/exports/
 
 # Исключаем видеофайлы ВЕЗДЕ в проекте
 *.mp4

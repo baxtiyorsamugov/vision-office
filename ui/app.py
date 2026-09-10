@@ -769,6 +769,8 @@ def render_people():
         fourth.metric("Неизвестные", unknown_visitor_count)
         erp_tab, local_tab, unknown_tab = st.tabs([f"ERP · {len(people)}", f"Локальная база · {len(local_employees)}", f"Неизвестные · {unknown_visitor_count}"])
         with erp_tab:
+            from ui.catalog_transfer import render_catalog_transfer
+            render_catalog_transfer(engine, edge_settings, people)
             if not people:
                 st.info("Каталог ERP ещё не загружен в локальный кэш.")
             else:
