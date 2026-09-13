@@ -70,6 +70,21 @@ class DockerAssetTests(unittest.TestCase):
         self.assertTrue(should_skip(PROJECT_ROOT / "docker-compose.override.yml"))
         self.assertFalse(should_skip(PROJECT_ROOT / "docker-compose.gpu.yml"))
         self.assertFalse(should_skip(PROJECT_ROOT / "start_vision_office.ps1"))
+        self.assertFalse(should_skip(PROJECT_ROOT / "launcher" / "VisionOfficeAutostart.exe"))
+
+    def test_windows_autostart_assets_are_present_and_portable(self):
+        helper = (PROJECT_ROOT / "tools" / "docker_autostart.ps1").read_text(encoding="utf-8")
+        installer = (PROJECT_ROOT / "tools" / "install_docker_autostart.ps1").read_text(encoding="utf-8")
+        launcher = (PROJECT_ROOT / "launcher" / "vision_office_autostart.py").read_text(encoding="utf-8")
+        self.assertIn("compose @Arguments", helper)
+        self.assertIn("'up', '-d', '--no-build'", helper)
+        self.assertIn("VisionOfficeDockerAutostart", helper)
+        self.assertIn("docker-autostart.log", helper)
+        self.assertIn("SpecialFolder]::Startup", installer)
+        self.assertIn("VisionOfficeAutostart.exe", installer)
+        self.assertIn("CREATE_NO_WINDOW", launcher)
+        self.assertTrue((PROJECT_ROOT / "docs" / "AUTOSTART_RUNBOOK.md").is_file())
+        self.assertTrue((PROJECT_ROOT / "tools" / "build_autostart_launcher.ps1").is_file())
 
     def test_docker_image_uses_cpu_torch_and_headless_runtime(self):
         dockerfile = (PROJECT_ROOT / "Dockerfile").read_text(encoding="utf-8")
