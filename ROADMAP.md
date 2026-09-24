@@ -33,7 +33,6 @@
 
 | Date | Status | Result | Evidence |
 | --- | --- | --- | --- |
-| 2026-09-13 | DONE | Added a lightweight Windows sign-in helper: a hidden `VisionOfficeAutostart.exe` waits for Docker Desktop, starts the saved Compose stack without rebuilding images, prevents concurrent launches and writes a redacted rotating local log. A per-user Startup shortcut installer, build script and recovery runbook are included; the helper preserves the already verified CPU/GPU profile and does not touch RTSP, ERP or recognition logic. | Isolated fake-Docker PowerShell test; Python Docker-asset tests; built EXE `--version`/`--check`; actual Startup shortcut inspected at `C:\Users\baxti\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup`; no Docker stack was started during validation. |
 | 2026-09-09 | DONE | Integrated upstream ARM64 CPU-wheel selection, actionable missing-model errors and IDE exclusions with the portable GPU runtime and installation tools. Preserved both sides of the merge and kept runtime tests independent of installed weights. | 64 tests pass on Windows and in an isolated Linux container with networking disabled; PowerShell launcher tests and Compose validation pass. Live services were not rebuilt or restarted for this repository synchronization; target ARM64/GPU acceptance remains as documented. |
 | 2026-09-09 | DONE | Added target-device GPU/CPU selection, real-model preflight, CPU fallback, CUDA-safe spawned AI workers, bounded CPU threads/ORT workspaces and actual runtime columns in the dashboard. Updated USB/Docker instructions; device-specific overrides stay local. | 60 tests on Windows and isolated Linux; launcher profile/failure tests; concurrent two-camera CPU/CUDA probes; live GPU -> CPU -> GPU and final restart; both streams connected, CUDA providers confirmed and dashboard screenshot checked. Physical Pascal/Blackwell and 30-minute peak-load acceptance remain pending. |
 | 2026-09-08 | DONE | Applied the approved reference across the dashboard, directories, profiles, registration, analytics, API page and camera monitor. Extracted `ui/theme.css`, aligned native table colors, added actual hourly event visualization and a cached camera snapshot, fixed single-event chart sizing and responsive form/metric layouts. | Five-page Streamlit AppTest without exceptions; final analytics/registration/profile recheck; desktop/mobile screenshots compared with the supplied reference; compile and diff checks; UI/API container rebuilds, worker/API health probes and live monitor at 25 capture / 13 detection FPS. Recognition and sync processes were not restarted. |
@@ -91,16 +90,7 @@
 
 ## Next step
 
-### Production acceptance (TODO)
-
-1. Test Windows sign-in autostart on a restart with Docker Desktop enabled: confirm
-   `docker compose ps`, dashboard, API health and a configured camera after login.
-2. Complete two-camera 30-minute entry/exit and peak CPU/GPU benchmark on each
-   target device. Do not treat synthetic checks as physical-hardware acceptance.
-3. Extend the ERP device sync response with identity metadata and perform the
-   Telegram credential UAT when approved credentials are available.
-
-### Historical note: ERP catalog transfer (implemented, 2026-09-10)
+### ERP catalog transfer (IN PROGRESS, 2026-09-10)
 
 Goal: export ERP employees, primary/additional photos and FaceID vectors into a
 bounded local ZIP; preview and transactionally import into another device without

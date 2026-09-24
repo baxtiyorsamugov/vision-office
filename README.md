@@ -9,7 +9,6 @@ Vision Office is a local face-recognition and attendance platform for RTSP camer
 - [ERP adapter and mock contract](docs/ERP_CONTRACT.md)
 - [Operations runbook](docs/OPERATIONS_RUNBOOK.md)
 - [Docker deployment runbook](docs/DOCKER_RUNBOOK.md)
-- [Windows Docker autostart runbook](docs/AUTOSTART_RUNBOOK.md)
 - [Automatic GPU/CPU selection and recovery](docs/GPU_RUNTIME.md)
 - [Local PostgreSQL, hourly ERP sync and reference-photo runbook](docs/POSTGRESQL_RUNBOOK.md)
 - [Transfer ERP employees, photos and FaceID to another device](docs/CATALOG_TRANSFER_RUNBOOK.md)
@@ -72,18 +71,6 @@ Open http://127.0.0.1:8501. GPU acceleration is reserved for `vision-worker`;
 support services stay CPU-only. Use `-Profile cpu` to force the portable CPU
 runtime. The launcher saves the selection locally for subsequent `docker compose up -d`.
 See the [Docker runbook](docs/DOCKER_RUNBOOK.md) before first launch.
-
-## Automatic start after Windows sign-in
-
-After one verified interactive launch, install the small helper so Docker Desktop
-and the saved Vision Office stack start without operator action at Windows sign-in:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\tools\install_docker_autostart.ps1
-```
-
-The helper does not rebuild images or change GPU/CPU selection. Full setup,
-diagnostics and removal are documented in the [autostart runbook](docs/AUTOSTART_RUNBOOK.md).
 
 For a separate low-impact local camera window, open http://127.0.0.1:8000/monitor. It displays bounded worker-generated preview frames and never opens a second RTSP connection.
 

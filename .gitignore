@@ -44,8 +44,4 @@ config/settings.yaml
 .env
 docker-compose.override.yml
 
-# Generated Windows helper. Source and build script are tracked.
-launcher/*.exe
-.build/
-
 .idea

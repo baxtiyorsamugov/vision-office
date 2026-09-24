@@ -146,28 +146,6 @@ docker compose logs --tail 60 vision-worker
 
 Docker не открывает отдельное окно OpenCV.
 
-## Автозапуск после входа в Windows
-
-После успешного первого запуска включите автозапуск, чтобы после каждого входа
-этого пользователя в Windows Docker Desktop и Vision Office поднимались сами:
-
-```powershell
-cd D:\acs
-powershell -ExecutionPolicy Bypass -File .\tools\install_docker_autostart.ps1
-```
-
-Готовый `launcher\VisionOfficeAutostart.exe` уже входит в актуальный комплект.
-Если его нет в старом архиве, создайте его на устройстве с Python один раз:
-
-```powershell
-.\.venv\Scripts\python.exe -m pip install -r .\tools\requirements-build.txt
-powershell -ExecutionPolicy Bypass -File .\tools\build_autostart_launcher.ps1
-```
-
-Проверка без запуска Docker: `.\launcher\VisionOfficeAutostart.exe --check`.
-Снять автозапуск: `powershell -ExecutionPolicy Bypass -File .\tools\install_docker_autostart.ps1 -Uninstall`.
-Подробности, журнал и восстановление: [docs/AUTOSTART_RUNBOOK.md](docs/AUTOSTART_RUNBOOK.md).
-
 ## 6. Один раз импортировать полные карточки ERP
 
 **Простой вариант без входа администратором ERP:** если на исходном компьютере
