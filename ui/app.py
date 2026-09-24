@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import sessionmaker
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -254,6 +254,28 @@ def render_directory_table(rows, key):
     return page_rows
 
 
+def render_person_picker(items, key, identity, name, status):
+    selected_key = f"{key}_selected_id"
+    selected_id = st.session_state.get(selected_key)
+    selected = next((item for item in items if identity(item) == selected_id), items[0])
+    st.session_state[selected_key] = identity(selected)
+    with st.container(height=min(540, len(items) * 48 + 8), border=False, key=f"{key}_rows"):
+        for item in items:
+            name_col, status_col = st.columns([3, 1], gap="small", vertical_alignment="center")
+            with name_col:
+                if st.button(
+                    display_name(name(item)), key=f"{key}_open_{identity(item)}",
+                    type="primary" if identity(item) == identity(selected) else "secondary",
+                    use_container_width=True,
+                ):
+                    st.session_state[selected_key] = identity(item)
+                    st.rerun()
+            with status_col:
+                st.markdown(f"<span class='directory-face'>{html.escape(str(status(item)))}</span>",
+                            unsafe_allow_html=True)
+    return selected
+
+
 def render_profile_header(name, source, profile_id, photo_path, role, status, detail):
     """Shared, unframed profile heading for every employee catalog."""
     image = profile_photo_data_uri(photo_path)
@@ -285,7 +307,7 @@ def render_event_history(events, empty_message):
         pd.DataFrame([{
             "Дата и время": format_local(event.created_at),
             "Камера": event.camera_id,
-            "Событие": event.event_type,
+            "Событие": {"entry": "Вход", "exit": "Выход"}.get(event.event_type, event.event_type),
             "Уверенность": f"{event.confidence:.0%}" if event.confidence is not None else "—",
         } for event in events]),
         use_container_width=True,
@@ -303,7 +325,7 @@ def render_local_attendance_history(attendance):
         pd.DataFrame([{
             "Дата": format_local(item.timestamp, "%d.%m.%Y"),
             "Время": format_local(item.timestamp, "%H:%M:%S"),
-            "Событие": item.event_type or "entry",
+            "Событие": {"entry": "Вход", "exit": "Выход"}.get(item.event_type or "entry", item.event_type or "entry"),
         } for item in attendance]),
         use_container_width=True,
         hide_index=True,
@@ -587,58 +609,54 @@ def render_unknown_visitor_catalog():
     """Render local candidate visitors without touching ERP or camera processing."""
     session = Session()
     try:
-        visitors = session.query(UnknownVisitor).order_by(UnknownVisitor.last_seen_at.desc()).all()
-        latest_camera = {}
-        for visit in session.query(UnknownVisitorVisit).order_by(UnknownVisitorVisit.last_seen_at.desc()).all():
-            latest_camera.setdefault(visit.visitor_id, visit.camera_id)
+        active_count = session.query(UnknownVisitor).filter_by(state="active").count()
+        converted_count = session.query(UnknownVisitor).filter_by(state="converted").count()
+        total_count = session.query(UnknownVisitor).count()
+        first, second, third = st.columns(3)
+        first.metric("Требуют проверки", active_count)
+        second.metric("Зарегистрированы", converted_count)
+        third.metric("Карточек", total_count)
+        st.caption("Группы формируются локально по высокой похожести лица. Фото и биометрические шаблоны не передаются в ERP.")
+        if not total_count:
+            st.info("Каталог заполняется в фоне из новых и сохранённых неизвестных событий.")
+            return
+
+        controls, filter_col = st.columns([3, 1], gap="small", vertical_alignment="bottom")
+        with controls:
+            search = st.text_input("Поиск неизвестных", placeholder="Номер карточки", key="unknown_people_search").strip()
+        with filter_col:
+            state_filter = st.selectbox("Статус", ["Все", "Требует проверки", "Зарегистрирован", "Архив"], key="unknown_people_state")
+        state_values = {"Требует проверки": "active", "Зарегистрирован": "converted", "Архив": "archived"}
+        query = session.query(UnknownVisitor)
+        if search:
+            number = search.replace("Неизвестный", "").replace("#", "").strip()
+            query = query.filter(UnknownVisitor.id == int(number)) if number.isdigit() else query.filter(UnknownVisitor.id == -1)
+        if state_filter != "Все":
+            query = query.filter(UnknownVisitor.state == state_values[state_filter])
+        filtered_count = query.count()
+        page_count = max(1, (filtered_count + 24) // 25)
+        filter_key = (search, state_filter)
+        if st.session_state.get("unknown_visitor_filters") != filter_key or st.session_state.get("unknown_visitors_page", 1) > page_count:
+            st.session_state["unknown_visitors_page"] = 1
+            st.session_state["unknown_visitor_filters"] = filter_key
+        count_col, page_col = st.columns([3, 1], gap="small", vertical_alignment="bottom")
+        with count_col:
+            st.caption(f"Найдено: {filtered_count}")
+        with page_col:
+            page = st.selectbox("Страница", list(range(1, page_count + 1)),
+                                format_func=lambda value: f"{value} / {page_count}", key="unknown_visitors_page")
+        visitors = query.order_by(UnknownVisitor.last_seen_at.desc()).offset((page - 1) * 25).limit(25).all()
     finally:
         session.close()
-
-    active_count = sum(item.state == "active" for item in visitors)
-    converted_count = sum(item.state == "converted" for item in visitors)
-    first, second, third = st.columns(3)
-    first.metric("Требуют проверки", active_count)
-    second.metric("Зарегистрированы", converted_count)
-    third.metric("Карточек", len(visitors))
-    st.caption("Группы формируются локально по высокой похожести лица. Фото и биометрические шаблоны не передаются в ERP.")
     if not visitors:
-        st.info("Каталог заполняется в фоне из новых и сохранённых неизвестных событий.")
+        st.info("По этому запросу карточек нет.")
         return
-
-    controls, filter_col = st.columns([3, 1], gap="small", vertical_alignment="bottom")
-    with controls:
-        search = st.text_input("Поиск неизвестных", placeholder="Номер карточки", key="unknown_people_search")
-    with filter_col:
-        state_filter = st.selectbox("Статус", ["Все", "Требует проверки", "Зарегистрирован", "Архив"], key="unknown_people_state")
-    search_value = search.strip().casefold()
-    state_values = {"Требует проверки": "active", "Зарегистрирован": "converted", "Архив": "archived"}
-    filtered = [
-        visitor for visitor in visitors
-        if (not search_value or search_value in f"{visitor.id:04d}" or search_value in f"unknown {visitor.id}".casefold())
-        and (state_filter == "Все" or visitor.state == state_values[state_filter])
-    ]
-    page_rows = render_directory_table([
-        {
-            "№": index,
-            "Фото": profile_photo_data_uri(visitor.primary_photo_path),
-            "Карточка": f"Неизвестный #{visitor.id:04d}",
-            "Статус": unknown_state_label(visitor.state),
-            "Посещений": visitor.visit_count,
-            "Наблюдения": visitor.observation_count,
-            "Первая встреча": format_local(visitor.first_seen_at, "%d.%m.%Y %H:%M"),
-            "Последняя встреча": format_local(visitor.last_seen_at, "%d.%m.%Y %H:%M"),
-            "Камера": latest_camera.get(visitor.id, "—"),
-            "Профиль": "Открыть ниже",
-        } for index, visitor in enumerate(filtered, start=1)
-    ], "unknown_visitors")
-    if not page_rows:
-        return
-    options = {
-        f"{row['Карточка']} · {row['Статус']}": filtered[row["№"] - 1]
-        for row in page_rows
-    }
-    selected_label = st.selectbox("Открыть карточку неизвестного", list(options), key="unknown_visitor_detail")
-    visitor = options[selected_label]
+    st.markdown("<hr class='section-rule'>", unsafe_allow_html=True)
+    visitor = render_person_picker(
+        visitors, "unknown_visitor", lambda item: item.id,
+        lambda item: f"Неизвестный #{item.id:04d}",
+        lambda item: f"{item.visit_count} посещ.",
+    )
     session = Session()
     try:
         observations = session.query(UnknownFaceObservation, RecognitionEvent).join(
@@ -647,7 +665,7 @@ def render_unknown_visitor_catalog():
             UnknownFaceObservation.visitor_id == visitor.id,
         ).order_by(UnknownFaceObservation.observed_at.desc()).all()
         linked_employee = session.get(Employee, visitor.local_employee_id) if visitor.local_employee_id else None
-        active_candidates = session.query(UnknownVisitor).filter(
+        active_candidates = session.query(UnknownVisitor.id, UnknownVisitor.visit_count).filter(
             UnknownVisitor.state == "active", UnknownVisitor.id != visitor.id,
         ).order_by(UnknownVisitor.last_seen_at.desc()).all()
     finally:
@@ -749,10 +767,6 @@ def render_people():
                 RemotePersonReferencePhoto.active.is_(True)
             ).group_by(RemotePersonReferencePhoto.person_id).all())
             local_employees = session.query(Employee).order_by(Employee.full_name.asc(), Employee.id.asc()).all()
-            local_event_counts = dict(session.query(
-                Attendance.employee_id,
-                func.count(Attendance.id),
-            ).group_by(Attendance.employee_id).all())
             unknown_visitor_count = session.query(UnknownVisitor).filter(UnknownVisitor.state == "active").count()
             eduschool_employee_count = session.query(EduSchoolCatalogPerson).filter_by(person_type="employee").count()
             eduschool_student_count = session.query(EduSchoolCatalogPerson).filter_by(person_type="student").count()
@@ -813,42 +827,33 @@ def render_people():
                 search = st.text_input("Поиск в старом ERP", placeholder="Имя или тип", key="erp_people_search")
                 search_value = search.strip().casefold()
                 filtered_people = [person for person in people if not search_value or search_value in (person.fio or "").casefold() or search_value in person.person_type.casefold()]
-                page_people = render_directory_table(
-                    [{
-                        "№": index,
-                        "Фото": profile_photo_data_uri(person.photo_path),
-                        "Сотрудник": display_name(person.fio or f"{person.person_type} {person.id[:8]}"),
-                        "Роль / тип": person.person_type,
-                        "FaceID": status_names.get(person.embedding_status, person.embedding_status),
-                        "Доп. фото": photo_counts.get(person.id, 0),
-                        "Профиль": "Открыть ниже",
-                    } for index, person in enumerate(filtered_people, start=1)],
-                    "erp_people",
-                )
-                if page_people:
-                    options = {
-                        f"{row['Сотрудник']} · {filtered_people[row['№'] - 1].id[:8]}": filtered_people[row["№"] - 1]
-                        for row in page_people
-                    }
-                    selected_label = st.selectbox("Открыть профиль старого ERP", list(options), key="erp_people_detail")
-                    person = options[selected_label]
-                    session = Session()
-                    try:
-                        events = session.query(RecognitionEvent).filter(
-                            RecognitionEvent.person_id == person.id
-                        ).order_by(RecognitionEvent.created_at.desc()).limit(12).all()
-                    finally:
-                        session.close()
-                    render_profile_header(
-                        person.fio or f"{person.person_type} {person.id[:8]}",
-                        "Старый ERP-каталог",
-                        f"ERP {person.id[:8]}",
-                        person.photo_path,
-                        person.person_type,
-                        status_names.get(person.embedding_status, person.embedding_status),
-                        f"основное + {photo_counts.get(person.id, 0)} доп.",
-                    )
-                    render_event_history(events, "У этого ERP-сотрудника пока нет локальных событий распознавания.")
+                if filtered_people:
+                    list_col, detail_col = st.columns([1.05, 0.95], gap="medium", vertical_alignment="top")
+                    with list_col, st.container(key="legacy-employee-list"):
+                        st.markdown(f"<div class='directory-list-heading'><strong>Сотрудники</strong><span>{len(filtered_people)} найдено</span></div>",
+                                    unsafe_allow_html=True)
+                        person = render_person_picker(
+                            filtered_people, "erp_people", lambda item: item.id,
+                            lambda item: item.fio or f"{item.person_type} {item.id[:8]}",
+                            lambda item: status_names.get(item.embedding_status, item.embedding_status),
+                        )
+                    with detail_col, st.container(key="legacy-employee-detail"):
+                        session = Session()
+                        try:
+                            events = session.query(RecognitionEvent).filter(
+                                RecognitionEvent.person_id == person.id
+                            ).order_by(RecognitionEvent.created_at.desc()).limit(12).all()
+                        finally:
+                            session.close()
+                        render_profile_header(
+                            person.fio or f"{person.person_type} {person.id[:8]}",
+                            "Старый ERP-каталог", f"ERP {person.id[:8]}", person.photo_path,
+                            person.person_type, status_names.get(person.embedding_status, person.embedding_status),
+                            f"основное + {photo_counts.get(person.id, 0)} доп.",
+                        )
+                        render_event_history(events, "У этого ERP-сотрудника пока нет локальных событий распознавания.")
+                else:
+                    st.caption("Поиск не нашёл сотрудников.")
         with local_tab:
             if not local_employees:
                 st.caption("Локальных сотрудников пока нет. Их можно добавить на вкладке «Регистрация».")
@@ -857,46 +862,36 @@ def render_people():
                 search = st.text_input("Поиск в локальной базе", placeholder="Имя или роль", key="local_people_search")
                 search_value = search.strip().casefold()
                 filtered_employees = [employee for employee in local_employees if not search_value or search_value in employee.full_name.casefold() or search_value in (employee.role or "").casefold()]
-                page_employees = render_directory_table(
-                    [{
-                        "№": index,
-                        "Фото": profile_photo_data_uri(employee.photo_path),
-                        "Сотрудник": display_name(employee.full_name),
-                        "Роль / тип": employee.role or "Не указана",
-                        "FaceID": "Готов" if employee.face_embeddings else "Нет",
-                        "Посещений": local_event_counts.get(employee.id, 0),
-                        "Профиль": "Открыть ниже",
-                    } for index, employee in enumerate(filtered_employees, start=1)],
-                    "local_people",
-                )
-                if page_employees:
-                    options = {
-                        f"{row['Сотрудник']} · #{filtered_employees[row['№'] - 1].id:04d}": filtered_employees[row["№"] - 1]
-                        for row in page_employees
-                    }
-                    selected_label = st.selectbox("Открыть локальный профиль", list(options), key="local_people_detail")
-                    employee = options[selected_label]
-                    session = Session()
-                    try:
-                        attendance = session.query(Attendance).filter(
-                            Attendance.employee_id == employee.id
-                        ).order_by(Attendance.timestamp.desc()).limit(12).all()
-                        events = session.query(RecognitionEvent).filter(
-                            RecognitionEvent.person_id == f"local:{employee.id}"
-                        ).order_by(RecognitionEvent.created_at.desc()).limit(12).all()
-                    finally:
-                        session.close()
-                    render_profile_header(
-                        employee.full_name,
-                        "Локальная PostgreSQL",
-                        f"Профиль #{employee.id:04d}",
-                        employee.photo_path,
-                        employee.role or "Не указана",
-                        "Готов" if employee.face_embeddings else "Нет",
-                        "локальное",
-                    )
-                    render_local_attendance_history(attendance)
-                    render_event_history(events, "Событий камеры для этого локального профиля пока нет.")
+                if filtered_employees:
+                    list_col, detail_col = st.columns([1.05, 0.95], gap="medium", vertical_alignment="top")
+                    with list_col, st.container(key="local-employee-list"):
+                        st.markdown(f"<div class='directory-list-heading'><strong>Локальные сотрудники</strong><span>{len(filtered_employees)} найдено</span></div>",
+                                    unsafe_allow_html=True)
+                        employee = render_person_picker(
+                            filtered_employees, "local_people", lambda item: item.id,
+                            lambda item: item.full_name,
+                            lambda item: "Готов" if item.face_embeddings else "Нет фото",
+                        )
+                    with detail_col, st.container(key="local-employee-detail"):
+                        session = Session()
+                        try:
+                            attendance = session.query(Attendance).filter(
+                                Attendance.employee_id == employee.id
+                            ).order_by(Attendance.timestamp.desc()).limit(12).all()
+                            events = session.query(RecognitionEvent).filter(
+                                RecognitionEvent.person_id == f"local:{employee.id}"
+                            ).order_by(RecognitionEvent.created_at.desc()).limit(12).all()
+                        finally:
+                            session.close()
+                        render_profile_header(
+                            employee.full_name, "Локальная PostgreSQL", f"Профиль #{employee.id:04d}",
+                            employee.photo_path, employee.role or "Не указана",
+                            "Готов" if employee.face_embeddings else "Нет", "локальное",
+                        )
+                        render_local_attendance_history(attendance)
+                        render_event_history(events, "Событий камеры для этого локального профиля пока нет.")
+                else:
+                    st.caption("Поиск не нашёл сотрудников.")
         return
     render_eduschool_directory()
     session = Session()
@@ -945,7 +940,6 @@ def render_eduschool_directory():
     if not settings.enabled:
         return
     st.subheader("Каталог EduSchool")
-    st.caption("Фото из EduSchool обрабатываются в фоне. Фото и FaceID остаются только на этом устройстве.")
     session = Session()
     try:
         state = session.get(EduSchoolCatalogSyncState, 1)
@@ -958,113 +952,171 @@ def render_eduschool_directory():
             st.info("Ожидается первая синхронизация EduSchool.")
         if state and state.last_error:
             st.warning(f"Ошибка синхронизации EduSchool: {state.last_error}")
-        person_type = st.selectbox("Каталог", ["Сотрудники", "Студенты"], key="eduschool_directory_type")
-        search = st.text_input("Поиск по имени", key="eduschool_directory_search").strip()
-        query = session.query(EduSchoolCatalogPerson).filter(
-            EduSchoolCatalogPerson.person_type == ("employee" if person_type == "Сотрудники" else "student")
-        )
-        if search:
-            query = query.filter(EduSchoolCatalogPerson.full_name.ilike(f"%{search}%"))
-        total = query.count()
-        page_count = max(1, (total + 49) // 50)
-        page_key = "eduschool_directory_page"
-        if st.session_state.get(page_key, 1) > page_count:
-            st.session_state[page_key] = 1
-        page = st.selectbox("Страница", list(range(1, page_count + 1)), key=page_key)
-        rows = query.order_by(EduSchoolCatalogPerson.full_name, EduSchoolCatalogPerson.id).offset((page - 1) * 50).limit(50).all()
-        ids = [person.id for person in rows]
-        photos = session.query(EduSchoolReferencePhoto).filter(
-            EduSchoolReferencePhoto.person_id.in_(ids), EduSchoolReferencePhoto.active.is_(True)
-        ).order_by(EduSchoolReferencePhoto.created_at, EduSchoolReferencePhoto.id).all() if ids else []
-        photos_by_person = {}
-        for photo in photos:
-            photos_by_person.setdefault(photo.person_id, []).append(photo)
-        st.caption(f"Найдено: {total}")
-        st.dataframe(pd.DataFrame([
-            {
-                "ФИО": row.full_name,
-                "Статус": row.source_status,
-                "В филиале": "Да" if row.active else "Нет",
-                "Фото FaceID": len(photos_by_person.get(row.id, [])),
-                "FaceID": "Готов" if row.active and photos_by_person.get(row.id) else "Нет",
-                "Фото API": {"ready": "Готово", "pending": "В очереди", "failed": "Повтор позже", "invalid": "Проверить фото", "missing": "Нет фото"}.get(row.source_photo_status, row.source_photo_status),
-                "ID EduSchool": row.external_id,
-            }
-            for row in rows
-        ]), use_container_width=True, hide_index=True)
-        if not rows:
-            return
-        options = {f"{person.full_name} · {person.external_id[:8]}": person for person in rows}
-        selected = st.selectbox("Открыть профиль EduSchool", list(options), key="eduschool_directory_profile")
-        person = options[selected]
-        local_photos = photos_by_person.get(person.id, [])
-        events = session.query(RecognitionEvent).filter(
-            RecognitionEvent.person_id == recognition_id(person)
-        ).order_by(RecognitionEvent.created_at.desc()).limit(12).all()
-        render_profile_header(
-            person.full_name, "EduSchool · локальный каталог", person.external_id,
-            local_photos[0].photo_path if local_photos else None,
-            "Сотрудник" if person.person_type == "employee" else "Студент",
-            "Готов" if person.active and local_photos else "Нет",
-            f"{len(local_photos)} фото FaceID · {person.source_status}",
+        with st.container(key="employee-browser"):
+            list_col, detail_col = st.columns([1.05, 0.95], gap="medium", vertical_alignment="top")
+            with list_col, st.container(key="employee-list"):
+                person = render_eduschool_list(session)
+            if person is not None:
+                with detail_col, st.container(key="employee-detail"):
+                    local_photos = session.query(EduSchoolReferencePhoto).filter_by(
+                        person_id=person.id, active=True,
+                    ).order_by(EduSchoolReferencePhoto.created_at, EduSchoolReferencePhoto.id).all()
+                    render_eduschool_profile(session, person, local_photos, settings, recognition_id, EduSchoolPhotoService)
+    finally:
+        session.close()
+
+
+def render_eduschool_list(session):
+    person_type = st.segmented_control(
+        "Каталог", ["Сотрудники", "Студенты"], default="Сотрудники",
+        key="eduschool_directory_type", width="stretch", label_visibility="collapsed",
+    )
+    search_col, filter_col = st.columns([2, 1.3], gap="small", vertical_alignment="bottom")
+    with search_col:
+        search = st.text_input(
+            "Поиск", placeholder="ФИО, номер или ID", key="eduschool_directory_search",
+            icon=":material/search:", label_visibility="collapsed",
+        ).strip()
+    active_filters = sum(st.session_state.get(key, "Все") != "Все" for key in ("eduschool_branch_filter", "eduschool_face_filter"))
+    filter_label = f"Фильтры · {active_filters}" if active_filters else "Фильтры"
+    with filter_col, st.popover(filter_label, icon=":material/tune:", use_container_width=True, key="eduschool_filters_popover"):
+        branch_filter = st.selectbox("Филиал", ["Все", "В филиале", "Вне филиала"], key="eduschool_branch_filter")
+        face_choice = st.selectbox("FaceID", ["Все", "Готов", "Нет фото"], key="eduschool_face_filter")
+        if st.button("Сбросить фильтры", icon=":material/restart_alt:", use_container_width=True):
+            st.session_state["eduschool_branch_filter"] = "Все"
+            st.session_state["eduschool_face_filter"] = "Все"
+            st.rerun()
+    kind = "employee" if person_type == "Сотрудники" else "student"
+    query = session.query(EduSchoolCatalogPerson).filter(EduSchoolCatalogPerson.person_type == kind)
+    if search:
+        pattern = f"%{search}%"
+        query = query.filter(or_(
+            EduSchoolCatalogPerson.full_name.ilike(pattern),
+            EduSchoolCatalogPerson.employee_no.ilike(pattern),
+            EduSchoolCatalogPerson.external_id.ilike(pattern),
+        ))
+    if branch_filter != "Все":
+        query = query.filter(EduSchoolCatalogPerson.active.is_(branch_filter == "В филиале"))
+    has_photo = session.query(EduSchoolReferencePhoto.id).filter(
+        EduSchoolReferencePhoto.person_id == EduSchoolCatalogPerson.id,
+        EduSchoolReferencePhoto.active.is_(True),
+    ).exists()
+    if face_choice != "Все":
+        query = query.filter(has_photo if face_choice == "Готов" else ~has_photo)
+    total = query.count()
+    count_col, size_col, page_col = st.columns([1.6, 1, 1], gap="small", vertical_alignment="bottom")
+    with count_col:
+        st.markdown(f"<div class='directory-list-heading'><strong>{html.escape(person_type)}</strong><span>{total} найдено</span></div>",
+                    unsafe_allow_html=True)
+    with size_col:
+        page_size = st.selectbox("На странице", [25, 50], key="eduschool_directory_page_size")
+    page_count = max(1, (total + page_size - 1) // page_size)
+    page_key = "eduschool_directory_page"
+    filter_key = (kind, search, branch_filter, face_choice, page_size)
+    if st.session_state.get("eduschool_directory_filters") != filter_key or st.session_state.get(page_key, 1) > page_count:
+        st.session_state[page_key] = 1
+        st.session_state["eduschool_directory_filters"] = filter_key
+    with page_col:
+        page = st.selectbox("Страница", list(range(1, page_count + 1)),
+                            format_func=lambda value: f"{value} / {page_count}", key=page_key)
+    rows = query.order_by(EduSchoolCatalogPerson.full_name, EduSchoolCatalogPerson.id).offset(
+        (page - 1) * page_size
+    ).limit(page_size).all()
+    if not rows:
+        st.info("По этому запросу никого не найдено.")
+        if active_filters:
+            if st.button("Сбросить фильтры", key="eduschool_empty_reset", icon=":material/restart_alt:"):
+                st.session_state["eduschool_branch_filter"] = "Все"
+                st.session_state["eduschool_face_filter"] = "Все"
+                st.rerun()
+        return None
+    ids = [row.id for row in rows]
+    photo_counts = dict(session.query(
+        EduSchoolReferencePhoto.person_id, func.count(EduSchoolReferencePhoto.id),
+    ).filter(
+        EduSchoolReferencePhoto.person_id.in_(ids), EduSchoolReferencePhoto.active.is_(True),
+    ).group_by(EduSchoolReferencePhoto.person_id).all())
+    previous_id = st.session_state.get("eduschool_selected_person_id")
+    person = next((row for row in rows if row.id == previous_id), rows[0])
+    st.session_state["eduschool_selected_person_id"] = person.id
+    with st.container(height=590, border=False, key="employee-rows"):
+        for row in rows:
+            name_col, face_col = st.columns([3, 1], gap="small", vertical_alignment="center")
+            with name_col:
+                if st.button(
+                    display_name(row.full_name), key=f"eduschool_open_{row.id}",
+                    type="primary" if row.id == person.id else "secondary",
+                    use_container_width=True,
+                ):
+                    st.session_state["eduschool_selected_person_id"] = row.id
+                    st.rerun()
+            with face_col:
+                ready = bool(row.active and photo_counts.get(row.id))
+                st.markdown(
+                    f"<span class='directory-face{' ready' if ready else ''}'>"
+                    f"{'Готов' if ready else 'Нет фото'}</span>",
+                    unsafe_allow_html=True,
+                )
+    return person
+
+
+def render_eduschool_profile(session, person, local_photos, settings, recognition_id, photo_service):
+    events = session.query(RecognitionEvent).filter(
+        RecognitionEvent.person_id == recognition_id(person)
+    ).order_by(RecognitionEvent.created_at.desc()).limit(25).all()
+    render_profile_header(
+        person.full_name, "EduSchool", person.external_id,
+        local_photos[0].photo_path if local_photos else None,
+        "Сотрудник" if person.person_type == "employee" else "Студент",
+        "FaceID готов" if person.active and local_photos else "Нет FaceID",
+        "В филиале" if person.active else "Вне филиала",
+    )
+    sections = ["Обзор", "События", "Фото"]
+    if person.person_type == "employee":
+        sections.append("Отправка")
+    section = st.segmented_control(
+        "Карточка", sections, default="Обзор", key=f"eduschool_profile_section_{person.person_type}",
+        width="stretch", label_visibility="collapsed",
+    )
+    if section == "Обзор":
+        last_event = events[0] if events else None
+        facts = [
+            ("Состояние", {"active": "Активен", "new": "Новый", "archived": "Архив"}.get(
+                person.source_status, person.source_status)),
+            ("ID EduSchool", person.external_id),
+            ("Табельный номер", person.employee_no or "Не указан") if person.person_type == "employee" else ("Тип", "Студент"),
+            ("Фото FaceID", str(len(local_photos))),
+            ("Последний проход", format_local(last_event.created_at) if last_event else "Нет событий"),
+            ("Камера", last_event.camera_id if last_event else "—"),
+        ]
+        st.markdown(
+            "<div class='profile-facts'>" + "".join(
+                f"<div><span>{html.escape(label)}</span><strong>{html.escape(str(value))}</strong></div>"
+                for label, value in facts
+            ) + "</div>", unsafe_allow_html=True,
         )
         if person.person_type == "employee":
-            from core.eduschool.turnstile import reconcile_ambiguous, set_person_hold
-
             turnstile_state = session.get(EduSchoolTurnstileState, 1)
-            delivery_on = bool(turnstile_state and turnstile_state.enabled)
-            attendance_status = (
-                "Приостановлено" if person.attendance_blocked else
-                "Готов автоматически" if person.attendance_approved else
-                "Ожидает номер или фото FaceID"
+            delivery = "Приостановлено" if person.attendance_blocked else (
+                "Готово к отправке" if person.attendance_approved and turnstile_state and turnstile_state.enabled
+                else "Не готово к отправке"
             )
-            st.caption(
-                f"Табельный номер: {person.employee_no or 'не указан'} · "
-                f"Отправка: {'включена' if delivery_on else 'выключена'} · "
-                f"Статус: {attendance_status}"
-            )
-            blocked = st.toggle("Приостановить отправку для этого сотрудника", value=person.attendance_blocked,
-                                key=f"eduschool_hold_{person.id}")
-            if blocked != person.attendance_blocked:
-                set_person_hold(person.id, blocked, engine)
-                st.rerun()
-            deliveries = session.query(EduSchoolTurnstileOutbox).filter_by(person_id=person.id).order_by(
-                EduSchoolTurnstileOutbox.created_at.desc()
-            ).limit(12).all()
-            if deliveries:
-                st.dataframe(pd.DataFrame([{
-                    "Событие": item.event_id[:8], "Статус": item.status,
-                    "Попытки": item.attempts, "Код": item.response_code,
-                    "Причина": item.last_error or "",
-                } for item in deliveries]), use_container_width=True, hide_index=True)
-            uncertain = [item for item in deliveries if item.status == "ambiguous"]
-            if uncertain:
-                st.warning("Исход отправки неизвестен. Проверьте запись в EduSchool перед ручным повтором.")
-                with st.form(f"eduschool_reconcile_{person.id}"):
-                    chosen = st.selectbox("Событие для сверки", uncertain, format_func=lambda item: item.event_id[:8])
-                    outcome = st.radio("Результат сверки в EduSchool", ["Запись уже есть", "Записи нет"], horizontal=True)
-                    checked = st.checkbox("Я проверил(а) запись в EduSchool")
-                    reconcile = st.form_submit_button("Сохранить результат сверки")
-                if reconcile:
-                    if not checked:
-                        st.warning("Подтвердите сверку перед изменением статуса.")
-                    else:
-                        try:
-                            reconcile_ambiguous(chosen.event_id, already_delivered=outcome == "Запись уже есть", engine=engine)
-                            st.rerun()
-                        except ValueError as error:
-                            st.error(str(error))
+            st.caption(f"Посещения EduSchool: {delivery}")
         if person.source_photo_status in ("invalid", "failed"):
             st.warning(f"Фото API: {person.source_photo_error or 'не удалось обработать'}")
+    elif section == "События":
+        render_event_history(events, "Этот человек пока не был распознан камерой.")
+    elif section == "Фото":
         if local_photos:
-            st.caption("Локальные фото FaceID")
-            columns = st.columns(min(4, len(local_photos)))
+            columns = st.columns(min(2, len(local_photos)))
             for index, photo in enumerate(local_photos):
                 path = profile_photo_path(photo.photo_path)
                 if path:
-                    columns[index % len(columns)].image(str(path), use_container_width=True)
-        render_event_history(events, "Этот человек пока не был распознан камерой.")
-        with st.form("eduschool_reference_photo_form", clear_on_submit=True):
+                    with columns[index % len(columns)]:
+                        st.image(str(path), use_container_width=True, caption=f"FaceID · {index + 1}")
+        else:
+            st.caption("Фото FaceID пока нет.")
+        with st.form(f"eduschool_reference_photo_form_{person.id}", clear_on_submit=True):
             uploaded = st.file_uploader("Добавить локальное фото", type=["jpg", "jpeg", "png"])
             submitted = st.form_submit_button("Добавить фото для FaceID", disabled=not person.active)
         if submitted:
@@ -1073,7 +1125,7 @@ def render_eduschool_directory():
             else:
                 try:
                     with st.spinner("Проверяем лицо и сохраняем локальный шаблон"):
-                        EduSchoolPhotoService(reference_limit=settings.local_reference_photo_limit).add_local_photo(
+                        photo_service(reference_limit=settings.local_reference_photo_limit).add_local_photo(
                             person.id, uploaded.getvalue(),
                             lambda image: get_recognizer().get_embedding(image, require_single=True),
                         )
@@ -1083,8 +1135,56 @@ def render_eduschool_directory():
                     st.error(str(error))
                 except Exception:
                     st.error("Не удалось сохранить фото. Проверьте логи и повторите попытку.")
-    finally:
-        session.close()
+    elif section == "Отправка":
+        from core.eduschool.turnstile import reconcile_ambiguous, set_person_hold
+
+        turnstile_state = session.get(EduSchoolTurnstileState, 1)
+        delivery_on = bool(turnstile_state and turnstile_state.enabled)
+        attendance_status = (
+            "Приостановлено" if person.attendance_blocked else
+            "Готов автоматически" if person.attendance_approved else
+            "Ожидает номер или фото FaceID"
+        )
+        st.caption(f"Отправка: {'включена' if delivery_on else 'выключена'} · {attendance_status}")
+        blocked = st.toggle("Приостановить отправку для этого сотрудника", value=person.attendance_blocked,
+                            key=f"eduschool_hold_{person.id}")
+        if blocked != person.attendance_blocked:
+            set_person_hold(person.id, blocked, engine)
+            st.rerun()
+        deliveries = session.query(EduSchoolTurnstileOutbox).filter_by(person_id=person.id).order_by(
+            EduSchoolTurnstileOutbox.created_at.desc()
+        ).limit(12).all()
+        if deliveries:
+            st.dataframe(pd.DataFrame([{
+                "Время": format_local(item.sent_at or item.created_at, "%d.%m %H:%M"),
+                "Событие": item.event_id[:8], "Статус": {
+                    "sent": "Отправлено", "pending": "В очереди", "retry": "Повтор",
+                    "sending": "Отправляется", "failed": "Ошибка", "ambiguous": "Проверить",
+                    "skipped": "Пропущено",
+                }.get(item.status, item.status),
+                "Попытки": item.attempts, "Код": item.response_code,
+                "ID EduSchool": item.backend_event_id or "",
+                "Причина": item.last_error or "",
+            } for item in deliveries]), use_container_width=True, hide_index=True)
+        else:
+            st.caption("Отправок пока нет.")
+        uncertain = [item for item in deliveries if item.status == "ambiguous"]
+        if uncertain:
+            st.warning("Исход отправки неизвестен. Проверьте запись в EduSchool перед ручным повтором.")
+            with st.form(f"eduschool_reconcile_{person.id}"):
+                chosen = st.selectbox("Событие для сверки", uncertain, format_func=lambda item: item.event_id[:8])
+                outcome = st.radio("Результат сверки в EduSchool", ["Запись уже есть", "Записи нет"], horizontal=True)
+                checked = st.checkbox("Я проверил(а) запись в EduSchool")
+                reconcile = st.form_submit_button("Сохранить результат сверки")
+            if reconcile:
+                if not checked:
+                    st.warning("Подтвердите сверку перед изменением статуса.")
+                else:
+                    try:
+                        reconcile_ambiguous(chosen.event_id, already_delivered=outcome == "Запись уже есть", engine=engine)
+                        st.rerun()
+                    except ValueError as error:
+                        st.error(str(error))
 
 
 def render_edge_status(edge_settings):
