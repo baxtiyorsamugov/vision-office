@@ -22,7 +22,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from database.manager import get_engine
 from database.migrations import run_migrations
-from database.models import AccessLogOutbox, Attendance, Base, EdgeSyncState, Employee, HealthIncident, RecognitionEvent, RemotePerson, RemotePersonReferencePhoto, UnknownFaceObservation, UnknownVisitor, UnknownVisitorVisit
+from database.models import AccessLogOutbox, Attendance, Base, EdgeSyncState, EduSchoolCatalogPerson, EduSchoolCatalogSyncState, EduSchoolReferencePhoto, Employee, HealthIncident, RecognitionEvent, RemotePerson, RemotePersonReferencePhoto, UnknownFaceObservation, UnknownVisitor, UnknownVisitorVisit
 from core.edge.config import load_edge_settings
 from core.local_time import as_utc, format_local, local_day_bounds_utc, local_now, local_today, to_local
 from core.performance import read_runtime_status
@@ -754,6 +754,7 @@ def render_people():
                 func.count(Attendance.id),
             ).group_by(Attendance.employee_id).all())
             unknown_visitor_count = session.query(UnknownVisitor).filter(UnknownVisitor.state == "active").count()
+            eduschool_count = session.query(EduSchoolCatalogPerson).count()
         finally:
             session.close()
         status_names = {
@@ -767,7 +768,20 @@ def render_people():
         second.metric("Локальные сотрудники", len(local_employees))
         third.metric("ERP готовы к распознаванию", ready_count)
         fourth.metric("Неизвестные", unknown_visitor_count)
-        erp_tab, local_tab, unknown_tab = st.tabs([f"ERP · {len(people)}", f"Локальная база · {len(local_employees)}", f"Неизвестные · {unknown_visitor_count}"])
+        tabs = st.tabs(
+            [f"ERP · {len(people)}", f"Локальная база · {len(local_employees)}", f"Неизвестные · {unknown_visitor_count}", f"EduSchool · {eduschool_count}"],
+            key="people_catalog_tab",
+            on_change="rerun",
+        )
+        erp_tab, local_tab, unknown_tab = tabs[:3]
+        if tabs[3].open:
+            with tabs[3]:
+                render_eduschool_directory()
+            return
+        if unknown_tab.open:
+            with unknown_tab:
+                render_unknown_visitor_catalog()
+            return
         with erp_tab:
             from ui.catalog_transfer import render_catalog_transfer
             render_catalog_transfer(engine, edge_settings, people)
@@ -862,9 +876,8 @@ def render_people():
                     )
                     render_local_attendance_history(attendance)
                     render_event_history(events, "Событий камеры для этого локального профиля пока нет.")
-        with unknown_tab:
-            render_unknown_visitor_catalog()
         return
+    render_eduschool_directory()
     session = Session()
     try:
         employees = session.query(Employee).order_by(Employee.full_name.asc()).all()
@@ -901,6 +914,110 @@ def render_registration():
         return
     render_header("Регистрация сотрудника", "Создание профиля и биометрического шаблона")
     render_local_employee_form("registration_form")
+
+
+def render_eduschool_directory():
+    from core.eduschool.catalog import load_settings
+    from core.eduschool.photos import EduSchoolPhotoService, recognition_id
+
+    settings = load_settings()
+    if not settings.enabled:
+        return
+    st.subheader("Каталог EduSchool")
+    st.caption("Фото из EduSchool обрабатываются в фоне. Фото и FaceID остаются только на этом устройстве.")
+    session = Session()
+    try:
+        state = session.get(EduSchoolCatalogSyncState, 1)
+        if state and state.last_success_at:
+            st.caption(
+                f"Последнее обновление: {format_local(state.last_success_at)} · "
+                f"Студентов: {state.student_count} · Сотрудников: {state.employee_count}"
+            )
+        else:
+            st.info("Ожидается первая синхронизация EduSchool.")
+        if state and state.last_error:
+            st.warning(f"Ошибка синхронизации EduSchool: {state.last_error}")
+        person_type = st.selectbox("Каталог", ["Сотрудники", "Студенты"], key="eduschool_directory_type")
+        search = st.text_input("Поиск по имени", key="eduschool_directory_search").strip()
+        query = session.query(EduSchoolCatalogPerson).filter(
+            EduSchoolCatalogPerson.person_type == ("employee" if person_type == "Сотрудники" else "student")
+        )
+        if search:
+            query = query.filter(EduSchoolCatalogPerson.full_name.ilike(f"%{search}%"))
+        total = query.count()
+        page_count = max(1, (total + 49) // 50)
+        page_key = "eduschool_directory_page"
+        if st.session_state.get(page_key, 1) > page_count:
+            st.session_state[page_key] = 1
+        page = st.selectbox("Страница", list(range(1, page_count + 1)), key=page_key)
+        rows = query.order_by(EduSchoolCatalogPerson.full_name, EduSchoolCatalogPerson.id).offset((page - 1) * 50).limit(50).all()
+        ids = [person.id for person in rows]
+        photos = session.query(EduSchoolReferencePhoto).filter(
+            EduSchoolReferencePhoto.person_id.in_(ids), EduSchoolReferencePhoto.active.is_(True)
+        ).order_by(EduSchoolReferencePhoto.created_at, EduSchoolReferencePhoto.id).all() if ids else []
+        photos_by_person = {}
+        for photo in photos:
+            photos_by_person.setdefault(photo.person_id, []).append(photo)
+        st.caption(f"Найдено: {total}")
+        st.dataframe(pd.DataFrame([
+            {
+                "ФИО": row.full_name,
+                "Статус": row.source_status,
+                "В филиале": "Да" if row.active else "Нет",
+                "Фото FaceID": len(photos_by_person.get(row.id, [])),
+                "FaceID": "Готов" if row.active and photos_by_person.get(row.id) else "Нет",
+                "Фото API": {"ready": "Готово", "pending": "В очереди", "failed": "Повтор позже", "invalid": "Проверить фото", "missing": "Нет фото"}.get(row.source_photo_status, row.source_photo_status),
+                "ID EduSchool": row.external_id,
+            }
+            for row in rows
+        ]), use_container_width=True, hide_index=True)
+        if not rows:
+            return
+        options = {f"{person.full_name} · {person.external_id[:8]}": person for person in rows}
+        selected = st.selectbox("Открыть профиль EduSchool", list(options), key="eduschool_directory_profile")
+        person = options[selected]
+        local_photos = photos_by_person.get(person.id, [])
+        events = session.query(RecognitionEvent).filter(
+            RecognitionEvent.person_id == recognition_id(person)
+        ).order_by(RecognitionEvent.created_at.desc()).limit(12).all()
+        render_profile_header(
+            person.full_name, "EduSchool · локальный каталог", person.external_id,
+            local_photos[0].photo_path if local_photos else None,
+            "Сотрудник" if person.person_type == "employee" else "Студент",
+            "Готов" if person.active and local_photos else "Нет",
+            f"{len(local_photos)} фото FaceID · {person.source_status}",
+        )
+        if person.source_photo_status in ("invalid", "failed"):
+            st.warning(f"Фото API: {person.source_photo_error or 'не удалось обработать'}")
+        if local_photos:
+            st.caption("Локальные фото FaceID")
+            columns = st.columns(min(4, len(local_photos)))
+            for index, photo in enumerate(local_photos):
+                path = profile_photo_path(photo.photo_path)
+                if path:
+                    columns[index % len(columns)].image(str(path), use_container_width=True)
+        render_event_history(events, "Этот человек пока не был распознан камерой.")
+        with st.form("eduschool_reference_photo_form", clear_on_submit=True):
+            uploaded = st.file_uploader("Добавить локальное фото", type=["jpg", "jpeg", "png"])
+            submitted = st.form_submit_button("Добавить фото для FaceID", disabled=not person.active)
+        if submitted:
+            if uploaded is None:
+                st.warning("Выберите фото с одним хорошо видимым лицом.")
+            else:
+                try:
+                    with st.spinner("Проверяем лицо и сохраняем локальный шаблон"):
+                        EduSchoolPhotoService(reference_limit=settings.local_reference_photo_limit).add_local_photo(
+                            person.id, uploaded.getvalue(),
+                            lambda image: get_recognizer().get_embedding(image, require_single=True),
+                        )
+                    st.success("Фото сохранено. Камера обновит FaceID-кэш в течение нескольких секунд.")
+                    st.rerun()
+                except ValueError as error:
+                    st.error(str(error))
+                except Exception:
+                    st.error("Не удалось сохранить фото. Проверьте логи и повторите попытку.")
+    finally:
+        session.close()
 
 
 def render_edge_status(edge_settings):

@@ -96,6 +96,12 @@ def _load_known_faces(Session, edge_service=None, remote_mode=False):
                     })
                     vectors.append(stored_emb / norm)
 
+        from core.eduschool.photos import load_recognition_embeddings
+
+        eduschool_names, eduschool_vectors = load_recognition_embeddings(session)
+        names.extend(eduschool_names)
+        vectors.extend(eduschool_vectors)
+
         if not vectors:
             return [], None
 
@@ -103,9 +109,24 @@ def _load_known_faces(Session, edge_service=None, remote_mode=False):
     finally:
         session.close()
 
+
+def _choose_best_match(identities, similarities, threshold, eduschool_threshold=0.55):
+    best_idx = int(np.argmax(similarities))
+    best_sim = float(similarities[best_idx])
+    if str(identities[best_idx].get("person_id") or "").startswith("edu:"):
+        legacy = [idx for idx, identity in enumerate(identities)
+                  if not str(identity.get("person_id") or "").startswith("edu:")]
+        if legacy:
+            legacy_idx = max(legacy, key=lambda idx: similarities[idx])
+            legacy_sim = float(similarities[legacy_idx])
+            if legacy_sim > threshold and (best_sim <= eduschool_threshold or best_sim - legacy_sim <= 0.05):
+                return legacy_idx, legacy_sim
+    return best_idx, best_sim
+
 def face_recognition_worker(input_queue, shared_memory, face_timings, face_metrics, camera_id="reception_01", event_type="entry"):
     from core.ai.recognizer import FaceRecognizer
     from core.edge.config import load_edge_settings
+    from core.eduschool.catalog import load_settings as load_eduschool_settings
     from core.edge.service import EdgeService
     from core.events import RecognitionEventStore
     from core.unknown_visitors import load_unknown_visitor_settings
@@ -115,6 +136,7 @@ def face_recognition_worker(input_queue, shared_memory, face_timings, face_metri
     print("🤖 [Worker] Инициализация FaceID...")
     recognizer = FaceRecognizer()
     edge_settings = load_edge_settings()
+    eduschool_settings = load_eduschool_settings()
     edge_service = EdgeService(edge_settings) if edge_settings.configured else None
     engine = get_engine()
     Session = sessionmaker(bind=engine)
@@ -171,11 +193,13 @@ def face_recognition_worker(input_queue, shared_memory, face_timings, face_metri
                     continue
 
                 sims = known_embeddings @ (embedding / norm)
-                best_idx = int(np.argmax(sims))
-                max_sim = float(sims[best_idx])
-                best_match = known_names[best_idx]
-                
                 threshold = edge_settings.recognition_threshold if edge_service else 0.25
+                best_idx, max_sim = _choose_best_match(
+                    known_names, sims, threshold, eduschool_settings.recognition_threshold
+                )
+                best_match = known_names[best_idx]
+                if str(best_match.get("person_id") or "").startswith("edu:"):
+                    threshold = max(threshold, eduschool_settings.recognition_threshold)
                 if max_sim > threshold:
                     shared_memory[track_id] = {"name": best_match["name"], **best_match, "confidence": max_sim}
                     event = event_store.record(

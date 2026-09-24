@@ -14,6 +14,7 @@ Vision Office is a local face-recognition and attendance platform for RTSP camer
 - [Transfer ERP employees, photos and FaceID to another device](docs/CATALOG_TRANSFER_RUNBOOK.md)
 - [Unknown visitors catalog runbook](docs/UNKNOWN_VISITORS_RUNBOOK.md)
 - [UI design system](docs/UI_DESIGN_SYSTEM.md)
+- [EduSchool directory, automatic source-photo FaceID and local photos](docs/EDUSCHOOL_CATALOG_RUNBOOK.md)
 
 The roadmap is updated with each verified stage; do not treat a task as complete until its documented checks pass.
 

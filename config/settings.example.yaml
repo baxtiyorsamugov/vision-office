@@ -48,12 +48,24 @@ edge_integration:
   page_size: 200
   # An operator may add up to this many approved local photos per ERP person.
   local_reference_photo_limit: 10
+  recognition_threshold: 0.55
   # Outbox delivery is independent from the hourly people synchronization.
   delivery_poll_interval_seconds: 5
   recognition_threshold: 0.40
   event_cooldown_seconds: 60
   request_timeout_seconds: 10
   timezone: "Asia/Tashkent"
+
+# Read-only EduSchool directory. Put the Bearer token and apiKey in the
+# ignored .env file as EDUSCHOOL_EXTERNAL_BEARER_TOKEN and EDUSCHOOL_EXTERNAL_API_KEY.
+eduschool_catalog:
+  enabled: false
+  base_url: "https://backend.eduschool.uz"
+  branch_id: "REPLACE_WITH_BRANCH_ID"
+  sync_interval_seconds: 3600
+  page_size: 200
+  request_timeout_seconds: 20
+  local_reference_photo_limit: 10
 
 # Unknown faces are clustered only on this Edge device. They never reach ERP.
 unknown_visitors:

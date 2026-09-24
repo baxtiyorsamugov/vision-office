@@ -407,6 +407,7 @@ class EdgeService:
             not self.settings.configured
             or not event.person_id
             or event.person_id.startswith("local:")
+            or event.person_id.startswith("edu:")
             or event.person_type != "employee"
         ):
             return False

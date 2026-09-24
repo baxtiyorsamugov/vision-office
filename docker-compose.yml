@@ -71,6 +71,32 @@ services:
         condition: service_completed_successfully
     command: ["python", "-m", "core.edge.sync_worker"]
 
+  eduschool-sync:
+    <<: *common
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      <<: *common-environment
+      EDUSCHOOL_EXTERNAL_BEARER_TOKEN: ${EDUSCHOOL_EXTERNAL_BEARER_TOKEN:-}
+      EDUSCHOOL_EXTERNAL_API_KEY: ${EDUSCHOOL_EXTERNAL_API_KEY:-}
+    cpus: "0.50"
+    mem_limit: 512m
+    command: ["python", "-m", "core.eduschool.sync_worker"]
+
+  eduschool-photo-worker:
+    <<: *common
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      <<: *common-environment
+      VISION_OFFICE_DEVICE: cpu
+      VISION_OFFICE_CPU_THREADS: "1"
+    cpus: "0.50"
+    mem_limit: 1024m
+    command: ["python", "-m", "core.eduschool.photo_worker"]
+
   unknown-clusterer:
     <<: *common
     depends_on:

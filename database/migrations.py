@@ -25,6 +25,16 @@ MIGRATIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "ALTER TABLE edge_sync_state ADD COLUMN last_manual_full_sync_at TIMESTAMP",
         ),
     ),
+    (
+        "20260924_eduschool_source_faceid",
+        (
+            "ALTER TABLE eduschool_catalog_people ADD COLUMN source_photo_status VARCHAR(20) NOT NULL DEFAULT 'pending'",
+            "ALTER TABLE eduschool_catalog_people ADD COLUMN source_photo_error TEXT",
+            "ALTER TABLE eduschool_catalog_people ADD COLUMN source_photo_retry_at TIMESTAMP",
+            "ALTER TABLE eduschool_reference_photos ADD COLUMN source VARCHAR(20) NOT NULL DEFAULT 'local'",
+            "ALTER TABLE eduschool_reference_photos ADD COLUMN source_url VARCHAR(1024)",
+        ),
+    ),
 )
 
 

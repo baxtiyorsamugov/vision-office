@@ -118,7 +118,7 @@ class FaceRecognizer:
             for model in self.app.models.values()
         )
 
-    def get_embedding(self, face_img):
+    def get_embedding(self, face_img, *, require_single=False):
         try:
             faces = self.app.get(face_img)
         except Exception as error:
@@ -126,6 +126,8 @@ class FaceRecognizer:
                 raise
             self._fallback_to_cpu(error)
             faces = self.app.get(face_img)
+        if require_single and len(faces) != 1:
+            return None
         if len(faces) > 0:
             return faces[0].embedding
         return None

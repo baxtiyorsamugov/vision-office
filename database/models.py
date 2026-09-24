@@ -68,6 +68,50 @@ class RemotePersonReferencePhoto(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
 
 
+class EduSchoolCatalogPerson(Base):
+    """External ERP directory record with device-local FaceID enrollment state."""
+    __tablename__ = "eduschool_catalog_people"
+    __table_args__ = (UniqueConstraint("person_type", "external_id", name="uq_eduschool_person_source"),)
+
+    id = Column(String(40), primary_key=True)
+    person_type = Column(String(20), nullable=False, index=True)
+    external_id = Column(String(24), nullable=False)
+    full_name = Column(String(255), nullable=False)
+    image_url = Column(String(1024), nullable=True)
+    source_photo_status = Column(String(20), nullable=False, default="pending")
+    source_photo_error = Column(Text, nullable=True)
+    source_photo_retry_at = Column(DateTime(timezone=True), nullable=True)
+    source_status = Column(String(40), nullable=False)
+    active = Column(Boolean, nullable=False, default=False, index=True)
+    last_seen_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+
+class EduSchoolReferencePhoto(Base):
+    """Device-local reference photo that survives External API directory refreshes."""
+    __tablename__ = "eduschool_reference_photos"
+    __table_args__ = (UniqueConstraint("person_id", "image_checksum", name="uq_eduschool_reference_photo"),)
+
+    id = Column(String(36), primary_key=True)
+    person_id = Column(String(40), ForeignKey("eduschool_catalog_people.id"), nullable=False, index=True)
+    photo_path = Column(String(1024), nullable=False)
+    source = Column(String(20), nullable=False, default="local")
+    source_url = Column(String(1024), nullable=True)
+    image_checksum = Column(String(64), nullable=False)
+    embedding = Column(JSON, nullable=False)
+    active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+
+class EduSchoolCatalogSyncState(Base):
+    __tablename__ = "eduschool_catalog_sync_state"
+
+    id = Column(Integer, primary_key=True, default=1)
+    last_success_at = Column(DateTime(timezone=True), nullable=True)
+    last_error = Column(Text, nullable=True)
+    student_count = Column(Integer, nullable=False, default=0)
+    employee_count = Column(Integer, nullable=False, default=0)
+
+
 class EdgeSyncState(Base):
     __tablename__ = 'edge_sync_state'
 
