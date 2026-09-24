@@ -86,6 +86,27 @@ key for the new branch before restarting that sender; do not use the old branch
 with the new catalog. No historical attendance is replayed. See
 `docs/EDUSCHOOL_TURNSTILE_RUNBOOK.md` for delivery acceptance.
 
+If the operator explicitly requests removal of the superseded branch, first
+back up both PostgreSQL and `data/persons/eduschool/`. Stop the sync, photo and
+turnstile services, then run the guarded tool in the rebuilt sync image:
+
+```powershell
+$oldCount = 2658       # Replace with the measured old-profile count.
+$oldPhotoCount = 167   # Replace with the measured old-photo count.
+docker compose stop eduschool-sync eduschool-photo-worker eduschool-turnstile
+docker compose build eduschool-sync
+docker compose run --rm --no-deps --entrypoint python eduschool-sync tools/purge_eduschool_absent.py --expected-people $oldCount --expected-photos $oldPhotoCount
+docker compose run --rm --no-deps --entrypoint python eduschool-sync tools/purge_eduschool_absent.py --expected-people $oldCount --expected-photos $oldPhotoCount --apply
+docker compose up -d --no-deps eduschool-sync eduschool-photo-worker eduschool-turnstile
+```
+
+The first command is a dry-run. The tool requires the remaining catalog to
+match the latest successful snapshot and refuses to delete active people,
+unexpected counts, shared/unsafe photo paths, or profiles with recognition or
+attendance-outbox history. It removes old profile rows, their reference photos,
+embeddings and per-person photo folders; it does not delete protected backups.
+Check the UI and the next hourly sync before discarding any rollback backup.
+
 ## API boundary
 
 The catalog Bearer token is used only for External API directory reads. The
