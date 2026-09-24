@@ -148,10 +148,25 @@ class EduSchoolCatalogSync:
         if not self.settings.configured:
             raise ValueError("EduSchool catalog credentials or branch are missing")
         try:
-            snapshots = {
-                kind: [self._normalize(kind, row) for row in self._fetch_all(kind)]
-                for kind in ("student", "employee")
-            }
+            snapshots = {}
+            for kind in ("student", "employee"):
+                source_rows = self._fetch_all(kind)
+                unique_rows = {}
+                original_rows = {}
+                for source_row in source_rows:
+                    row = self._normalize(kind, source_row)
+                    if row["id"] in original_rows:
+                        if source_row != original_rows[row["id"]]:
+                            raise ValueError(f"EduSchool {kind}: conflicting duplicate ID")
+                        continue
+                    original_rows[row["id"]] = source_row
+                    unique_rows[row["id"]] = row
+                if len(source_rows) != len(unique_rows):
+                    logger.warning(
+                        "EduSchool %s catalog contained %s identical duplicate rows",
+                        kind, len(source_rows) - len(unique_rows),
+                    )
+                snapshots[kind] = list(unique_rows.values())
             all_rows = snapshots["student"] + snapshots["employee"]
             ids = [row["id"] for row in all_rows]
             id_set = set(ids)

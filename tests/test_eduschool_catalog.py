@@ -80,6 +80,25 @@ class EduSchoolCatalogTests(unittest.TestCase):
         with self.service.Session() as session:
             self.assertTrue(session.get(EduSchoolCatalogPerson, f"student:{self.student['_id']}").active)
 
+    def test_identical_duplicate_employee_rows_are_collapsed(self):
+        self._fake_pages({"student": [], "employee": [self.employee, dict(self.employee)]})
+        self.assertEqual(self.service.sync_once(), {"students": 0, "employees": 1})
+        with self.service.Session() as session:
+            self.assertEqual(session.query(EduSchoolCatalogPerson).count(), 1)
+            self.assertEqual(session.get(EduSchoolCatalogSyncState, 1).employee_count, 1)
+
+    def test_conflicting_duplicate_employee_rows_preserve_previous_snapshot(self):
+        self._fake_pages({"student": [self.student], "employee": [self.employee]})
+        self.service.sync_once()
+        changed_employee = dict(self.employee, fullName="Different Employee")
+        changed_student = dict(self.student, fullName="Changed Student")
+        self._fake_pages({"student": [changed_student], "employee": [self.employee, changed_employee]})
+        with self.assertRaisesRegex(ValueError, "conflicting duplicate ID"):
+            self.service.sync_once()
+        with self.service.Session() as session:
+            self.assertEqual(session.get(EduSchoolCatalogPerson, f"student:{self.student['_id']}").full_name, "Student One")
+            self.assertEqual(session.get(EduSchoolCatalogSyncState, 1).employee_count, 1)
+
     def test_empty_page_before_reported_total_is_rejected(self):
         self.service._fetch_page = lambda kind, page: {"data": {"total": 2, "data": []}}
         with self.assertRaisesRegex(ValueError, "incomplete page"):

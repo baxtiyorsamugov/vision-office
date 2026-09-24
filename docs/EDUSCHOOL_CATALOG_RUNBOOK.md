@@ -69,19 +69,32 @@ For backup/transfer, protect both PostgreSQL and this local photo directory.
 The sync first fetches *all* pages of both collections, then commits both to
 PostgreSQL in one transaction. A partial response or HTTP failure leaves the
 last good directory intact; the error is recorded and retried after one minute.
+Some branch employee responses contain the same ID on more than one page. The
+sync counts identical copies once; conflicting records for one ID fail the
+whole refresh rather than overwrite a profile unpredictably. Compare the API's
+reported row total with the unique employee count when investigating a warning.
 Records missing from a later complete snapshot remain in the database with
 status `absent` and inactive. A person marked inactive by EduSchool also stays
 in the local catalog. Locally approved photos and embeddings are untouched.
 
+Before changing branches, back up PostgreSQL and pause `eduschool-sync` and
+`eduschool-turnstile`. Update the ignored catalog credentials and branch ID,
+check one page of both API collections, then restart the sync service and verify
+the new counts and `last_error`. The previous branch's cards and local photos
+remain stored but become inactive. Set the turnstile branch ID and its dedicated
+key for the new branch before restarting that sender; do not use the old branch
+with the new catalog. No historical attendance is replayed. See
+`docs/EDUSCHOOL_TURNSTILE_RUNBOOK.md` for delivery acceptance.
+
 ## API boundary
 
-These credentials authorize the External API directory only. They are not a
-confirmed authorization method for the separate Face API and do not establish
-an attendance-ingest contract. Recognized EduSchool people produce local camera
-events only; they do not create ERP outbox entries or local-employee attendance
-rows. The existing 17-person FaceID catalog retains matching priority when a
+The catalog Bearer token is used only for External API directory reads. The
+separate turnstile sender has its own API-key setting and contract; directory
+access alone does not prove that a key is authorized to submit attendance.
+Recognized EduSchool people produce local camera events and never enter the
+legacy ERP outbox or local-employee attendance rows. The existing 17-person
+FaceID catalog retains matching priority when a
 new EduSchool reference is only marginally closer to a detected face. Avoid
 enrolling the same person twice in different catalogs when possible.
-Before connecting attendance, obtain the exact endpoint, request schema,
-authorization scope and idempotency rules from the backend owner and test in a
-non-production environment.
+Confirm turnstile key scope with the backend owner and perform a supervised
+known-person entry/exit test before treating attendance delivery as accepted.
