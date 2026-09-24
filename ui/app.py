@@ -22,7 +22,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from database.manager import get_engine
 from database.migrations import run_migrations
-from database.models import AccessLogOutbox, Attendance, Base, EdgeSyncState, EduSchoolCatalogPerson, EduSchoolCatalogSyncState, EduSchoolReferencePhoto, Employee, HealthIncident, RecognitionEvent, RemotePerson, RemotePersonReferencePhoto, UnknownFaceObservation, UnknownVisitor, UnknownVisitorVisit
+from database.models import AccessLogOutbox, Attendance, Base, EdgeSyncState, EduSchoolCatalogPerson, EduSchoolCatalogSyncState, EduSchoolReferencePhoto, EduSchoolTurnstileOutbox, EduSchoolTurnstileState, Employee, HealthIncident, RecognitionEvent, RemotePerson, RemotePersonReferencePhoto, UnknownFaceObservation, UnknownVisitor, UnknownVisitorVisit
 from core.edge.config import load_edge_settings
 from core.local_time import as_utc, format_local, local_day_bounds_utc, local_now, local_today, to_local
 from core.performance import read_runtime_status
@@ -987,6 +987,52 @@ def render_eduschool_directory():
             "Готов" if person.active and local_photos else "Нет",
             f"{len(local_photos)} фото FaceID · {person.source_status}",
         )
+        if person.person_type == "employee":
+            from core.eduschool.turnstile import reconcile_ambiguous, set_person_hold
+
+            turnstile_state = session.get(EduSchoolTurnstileState, 1)
+            delivery_on = bool(turnstile_state and turnstile_state.enabled)
+            attendance_status = (
+                "Приостановлено" if person.attendance_blocked else
+                "Готов автоматически" if person.attendance_approved else
+                "Ожидает номер или фото FaceID"
+            )
+            st.caption(
+                f"Табельный номер: {person.employee_no or 'не указан'} · "
+                f"Отправка: {'включена' if delivery_on else 'выключена'} · "
+                f"Статус: {attendance_status}"
+            )
+            blocked = st.toggle("Приостановить отправку для этого сотрудника", value=person.attendance_blocked,
+                                key=f"eduschool_hold_{person.id}")
+            if blocked != person.attendance_blocked:
+                set_person_hold(person.id, blocked, engine)
+                st.rerun()
+            deliveries = session.query(EduSchoolTurnstileOutbox).filter_by(person_id=person.id).order_by(
+                EduSchoolTurnstileOutbox.created_at.desc()
+            ).limit(12).all()
+            if deliveries:
+                st.dataframe(pd.DataFrame([{
+                    "Событие": item.event_id[:8], "Статус": item.status,
+                    "Попытки": item.attempts, "Код": item.response_code,
+                    "Причина": item.last_error or "",
+                } for item in deliveries]), use_container_width=True, hide_index=True)
+            uncertain = [item for item in deliveries if item.status == "ambiguous"]
+            if uncertain:
+                st.warning("Исход отправки неизвестен. Проверьте запись в EduSchool перед ручным повтором.")
+                with st.form(f"eduschool_reconcile_{person.id}"):
+                    chosen = st.selectbox("Событие для сверки", uncertain, format_func=lambda item: item.event_id[:8])
+                    outcome = st.radio("Результат сверки в EduSchool", ["Запись уже есть", "Записи нет"], horizontal=True)
+                    checked = st.checkbox("Я проверил(а) запись в EduSchool")
+                    reconcile = st.form_submit_button("Сохранить результат сверки")
+                if reconcile:
+                    if not checked:
+                        st.warning("Подтвердите сверку перед изменением статуса.")
+                    else:
+                        try:
+                            reconcile_ambiguous(chosen.event_id, already_delivered=outcome == "Запись уже есть", engine=engine)
+                            st.rerun()
+                        except ValueError as error:
+                            st.error(str(error))
         if person.source_photo_status in ("invalid", "failed"):
             st.warning(f"Фото API: {person.source_photo_error or 'не удалось обработать'}")
         if local_photos:

@@ -97,6 +97,18 @@ services:
     mem_limit: 1024m
     command: ["python", "-m", "core.eduschool.photo_worker"]
 
+  eduschool-turnstile:
+    <<: *common
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      <<: *common-environment
+      EDUSCHOOL_TURNSTILE_API_KEY: ${EDUSCHOOL_TURNSTILE_API_KEY:-}
+    cpus: "0.25"
+    mem_limit: 256m
+    command: ["python", "-m", "core.eduschool.turnstile_worker"]
+
   unknown-clusterer:
     <<: *common
     depends_on:

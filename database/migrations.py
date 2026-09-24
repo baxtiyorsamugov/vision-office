@@ -35,6 +35,20 @@ MIGRATIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "ALTER TABLE eduschool_reference_photos ADD COLUMN source_url VARCHAR(1024)",
         ),
     ),
+    (
+        "20260924_eduschool_turnstile_people",
+        (
+            "ALTER TABLE eduschool_catalog_people ADD COLUMN employee_no VARCHAR(64)",
+            "ALTER TABLE eduschool_catalog_people ADD COLUMN attendance_approved BOOLEAN NOT NULL DEFAULT FALSE",
+            "ALTER TABLE eduschool_catalog_people ADD COLUMN attendance_approved_at TIMESTAMP WITH TIME ZONE",
+        ),
+    ),
+    (
+        "20260924_eduschool_turnstile_auto_qualification",
+        (
+            "ALTER TABLE eduschool_catalog_people ADD COLUMN attendance_blocked BOOLEAN NOT NULL DEFAULT FALSE",
+        ),
+    ),
 )
 
 

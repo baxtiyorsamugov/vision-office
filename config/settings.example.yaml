@@ -67,6 +67,18 @@ eduschool_catalog:
   request_timeout_seconds: 20
   local_reference_photo_limit: 10
 
+# Opt-in staff attendance sender. Requires a separate Other-type integration key
+# in ignored .env; read-only catalog credentials cannot authorize this endpoint.
+eduschool_turnstile:
+  enabled: false
+  base_url: "https://backend.eduschool.uz"
+  branch_id: "REPLACE_WITH_CAMERA_BRANCH_ID"
+  device_ids:
+    reception_01: "GATE-ENTRY-1"
+    exit_01: "GATE-EXIT-1"
+  poll_interval_seconds: 5
+  request_timeout_seconds: 10
+
 # Unknown faces are clustered only on this Edge device. They never reach ERP.
 unknown_visitors:
   enabled: true

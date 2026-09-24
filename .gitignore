@@ -28,6 +28,7 @@ data/events/
 data/persons/
 data/previews/
 data/exports/
+data/backups/
 
 # Исключаем видеофайлы ВЕЗДЕ в проекте
 *.mp4

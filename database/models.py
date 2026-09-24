@@ -78,6 +78,10 @@ class EduSchoolCatalogPerson(Base):
     external_id = Column(String(24), nullable=False)
     full_name = Column(String(255), nullable=False)
     image_url = Column(String(1024), nullable=True)
+    employee_no = Column(String(64), nullable=True)
+    attendance_approved = Column(Boolean, nullable=False, default=False)
+    attendance_approved_at = Column(DateTime(timezone=True), nullable=True)
+    attendance_blocked = Column(Boolean, nullable=False, default=False)
     source_photo_status = Column(String(20), nullable=False, default="pending")
     source_photo_error = Column(Text, nullable=True)
     source_photo_retry_at = Column(DateTime(timezone=True), nullable=True)
@@ -110,6 +114,33 @@ class EduSchoolCatalogSyncState(Base):
     last_error = Column(Text, nullable=True)
     student_count = Column(Integer, nullable=False, default=0)
     employee_count = Column(Integer, nullable=False, default=0)
+
+
+class EduSchoolTurnstileState(Base):
+    __tablename__ = "eduschool_turnstile_state"
+
+    id = Column(Integer, primary_key=True, default=1)
+    enabled = Column(Boolean, nullable=False, default=False)
+    activated_at = Column(DateTime(timezone=True), nullable=True)
+    last_error = Column(Text, nullable=True)
+
+
+class EduSchoolTurnstileOutbox(Base):
+    """One local delivery decision per EduSchool recognition event."""
+    __tablename__ = "eduschool_turnstile_outbox"
+
+    event_id = Column(String(36), ForeignKey("recognition_events.id"), primary_key=True)
+    person_id = Column(String(40), nullable=False, index=True)
+    payload = Column(JSON, nullable=True)
+    status = Column(String(20), nullable=False, index=True)
+    attempts = Column(Integer, nullable=False, default=0)
+    response_code = Column(Integer, nullable=True)
+    backend_event_id = Column(String(64), nullable=True)
+    duplicate = Column(Boolean, nullable=False, default=False)
+    last_error = Column(String(255), nullable=True)
+    next_attempt_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+    sent_at = Column(DateTime(timezone=True), nullable=True)
 
 
 class EdgeSyncState(Base):

@@ -132,12 +132,14 @@ class EduSchoolCatalogSync:
         if not name:
             raise ValueError(f"EduSchool {person_type}: record without a name")
         image_url = str(row.get("imageUrl") or "").strip()
+        employee_no = str(row.get("employeeNo") or "").strip() if person_type == "employee" else ""
         return {
             "id": f"{person_type}:{row['_id']}",
             "person_type": person_type,
             "external_id": row["_id"],
             "full_name": name[:255],
             "image_url": image_url[:1024] if image_url else None,
+            "employee_no": employee_no if 1 <= len(employee_no) <= 64 else None,
             "source_status": status,
             "active": active,
         }
@@ -170,6 +172,14 @@ class EduSchoolCatalogSync:
                         person.source_photo_status = "pending" if row["image_url"] else "missing"
                         person.source_photo_error = None
                         person.source_photo_retry_at = None
+                        person.attendance_approved = False
+                        person.attendance_approved_at = None
+                    if person.id in existing and person.employee_no != row["employee_no"]:
+                        person.attendance_approved = False
+                        person.attendance_approved_at = None
+                    if not row["active"]:
+                        person.attendance_approved = False
+                        person.attendance_approved_at = None
                     if person.id not in existing:
                         person.source_photo_status = "pending" if row["image_url"] else "missing"
                     elif not row["image_url"] and person.source_photo_status != "missing":
@@ -183,6 +193,8 @@ class EduSchoolCatalogSync:
                     if person.id not in id_set:
                         person.active = False
                         person.source_status = "absent"
+                        person.attendance_approved = False
+                        person.attendance_approved_at = None
                 state = session.get(EduSchoolCatalogSyncState, 1)
                 if state is None:
                     state = EduSchoolCatalogSyncState(id=1)

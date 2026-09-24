@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 from sqlalchemy import create_engine
@@ -83,6 +84,33 @@ class EduSchoolCatalogTests(unittest.TestCase):
         self.service._fetch_page = lambda kind, page: {"data": {"total": 2, "data": []}}
         with self.assertRaisesRegex(ValueError, "incomplete page"):
             self.service.sync_once()
+
+    def test_employee_number_and_source_photo_changes_revoke_approval(self):
+        employee = dict(self.employee, employeeNo="A-17")
+        self._fake_pages({"student": [], "employee": [employee]})
+        self.service.sync_once()
+        person_id = f"employee:{self.employee['_id']}"
+        with self.service.Session.begin() as session:
+            person = session.get(EduSchoolCatalogPerson, person_id)
+            person.attendance_approved = True
+            person.attendance_approved_at = datetime.now(timezone.utc)
+        self.service.sync_once()
+        with self.service.Session() as session:
+            self.assertTrue(session.get(EduSchoolCatalogPerson, person_id).attendance_approved)
+        self._fake_pages({"student": [], "employee": [dict(employee, employeeNo="A-18")]})
+        self.service.sync_once()
+        with self.service.Session() as session:
+            person = session.get(EduSchoolCatalogPerson, person_id)
+            self.assertEqual(person.employee_no, "A-18")
+            self.assertFalse(person.attendance_approved)
+        with self.service.Session.begin() as session:
+            person = session.get(EduSchoolCatalogPerson, person_id)
+            person.attendance_approved = True
+            person.attendance_approved_at = datetime.now(timezone.utc)
+        self._fake_pages({"student": [], "employee": [dict(employee, employeeNo="A-18", imageUrl="https://images.test/new.jpg")]})
+        self.service.sync_once()
+        with self.service.Session() as session:
+            self.assertFalse(session.get(EduSchoolCatalogPerson, person_id).attendance_approved)
 
 
 if __name__ == "__main__":
