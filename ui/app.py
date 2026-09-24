@@ -734,7 +734,7 @@ def render_unknown_visitor_catalog():
 
 
 def render_people():
-    render_header("Сотрудники", "Профили и последние события присутствия")
+    render_header("Сотрудники", "Основной каталог EduSchool, FaceID и события присутствия")
     edge_settings = load_edge_settings()
     if edge_settings.configured:
         session = Session()
@@ -754,7 +754,24 @@ def render_people():
                 func.count(Attendance.id),
             ).group_by(Attendance.employee_id).all())
             unknown_visitor_count = session.query(UnknownVisitor).filter(UnknownVisitor.state == "active").count()
-            eduschool_count = session.query(EduSchoolCatalogPerson).count()
+            eduschool_employee_count = session.query(EduSchoolCatalogPerson).filter_by(person_type="employee").count()
+            eduschool_student_count = session.query(EduSchoolCatalogPerson).filter_by(person_type="student").count()
+            eduschool_active_employee_count = session.query(EduSchoolCatalogPerson).filter_by(
+                person_type="employee", active=True
+            ).count()
+            eduschool_face_ready_count = session.query(
+                func.count(func.distinct(EduSchoolCatalogPerson.id))
+            ).join(
+                EduSchoolReferencePhoto,
+                EduSchoolReferencePhoto.person_id == EduSchoolCatalogPerson.id,
+            ).filter(
+                EduSchoolCatalogPerson.person_type == "employee",
+                EduSchoolCatalogPerson.active.is_(True),
+                EduSchoolReferencePhoto.active.is_(True),
+            ).scalar() or 0
+            eduschool_attendance_ready_count = session.query(EduSchoolCatalogPerson).filter_by(
+                person_type="employee", active=True, attendance_approved=True
+            ).count()
         finally:
             session.close()
         status_names = {
@@ -762,20 +779,24 @@ def render_people():
             "pending": "Обрабатывается",
             "invalid": "Требуется фото",
         }
-        ready_count = sum(person.embedding_status == "ready" for person in people)
         first, second, third, fourth = st.columns(4)
-        first.metric("Сотрудники ERP", len(people))
-        second.metric("Локальные сотрудники", len(local_employees))
-        third.metric("ERP готовы к распознаванию", ready_count)
-        fourth.metric("Неизвестные", unknown_visitor_count)
+        first.metric("Сотрудники EduSchool", eduschool_employee_count)
+        second.metric("Активны в филиале", eduschool_active_employee_count)
+        third.metric("FaceID готов", eduschool_face_ready_count)
+        fourth.metric("Отправка посещений", eduschool_attendance_ready_count)
         tabs = st.tabs(
-            [f"ERP · {len(people)}", f"Локальная база · {len(local_employees)}", f"Неизвестные · {unknown_visitor_count}", f"EduSchool · {eduschool_count}"],
+            [
+                f"EduSchool · {eduschool_employee_count + eduschool_student_count}",
+                f"Старый ERP · {len(people)}",
+                f"Локальная база · {len(local_employees)}",
+                f"Неизвестные · {unknown_visitor_count}",
+            ],
             key="people_catalog_tab",
             on_change="rerun",
         )
-        erp_tab, local_tab, unknown_tab = tabs[:3]
-        if tabs[3].open:
-            with tabs[3]:
+        eduschool_tab, erp_tab, local_tab, unknown_tab = tabs
+        if eduschool_tab.open:
+            with eduschool_tab:
                 render_eduschool_directory()
             return
         if unknown_tab.open:
@@ -786,10 +807,10 @@ def render_people():
             from ui.catalog_transfer import render_catalog_transfer
             render_catalog_transfer(engine, edge_settings, people)
             if not people:
-                st.info("Каталог ERP ещё не загружен в локальный кэш.")
+                st.info("Каталог старого ERP ещё не загружен в локальный кэш.")
             else:
-                st.caption("Основной каталог поступает из ERP. Локальные дополнительные фото не изменяют карточки ERP.")
-                search = st.text_input("Поиск в ERP", placeholder="Имя или тип", key="erp_people_search")
+                st.caption("Второстепенный каталог старого ERP. Локальные дополнительные фото не изменяют его карточки.")
+                search = st.text_input("Поиск в старом ERP", placeholder="Имя или тип", key="erp_people_search")
                 search_value = search.strip().casefold()
                 filtered_people = [person for person in people if not search_value or search_value in (person.fio or "").casefold() or search_value in person.person_type.casefold()]
                 page_people = render_directory_table(
@@ -809,7 +830,7 @@ def render_people():
                         f"{row['Сотрудник']} · {filtered_people[row['№'] - 1].id[:8]}": filtered_people[row["№"] - 1]
                         for row in page_people
                     }
-                    selected_label = st.selectbox("Открыть профиль ERP", list(options), key="erp_people_detail")
+                    selected_label = st.selectbox("Открыть профиль старого ERP", list(options), key="erp_people_detail")
                     person = options[selected_label]
                     session = Session()
                     try:
@@ -820,7 +841,7 @@ def render_people():
                         session.close()
                     render_profile_header(
                         person.fio or f"{person.person_type} {person.id[:8]}",
-                        "ERP-каталог",
+                        "Старый ERP-каталог",
                         f"ERP {person.id[:8]}",
                         person.photo_path,
                         person.person_type,
