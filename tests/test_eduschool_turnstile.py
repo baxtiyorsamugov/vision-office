@@ -13,7 +13,7 @@ from core.eduschool.turnstile import (
     reconcile_ambiguous, send_attendance, set_person_hold,
 )
 from database.models import (
-    EduSchoolCatalogPerson, EduSchoolReferencePhoto, EduSchoolTurnstileOutbox,
+    EduSchoolCatalogPerson, EduSchoolDeliveryAttempt, EduSchoolReferencePhoto, EduSchoolTurnstileOutbox,
     EduSchoolTurnstileState, RecognitionEvent,
 )
 
@@ -59,6 +59,12 @@ class EduSchoolTurnstileTests(unittest.TestCase):
     def outbox(self, event_id):
         with self.service.Session() as session:
             return session.get(EduSchoolTurnstileOutbox, event_id)
+
+    def attempts(self, event_id):
+        with self.service.Session() as session:
+            return session.query(EduSchoolDeliveryAttempt).filter_by(event_id=event_id).order_by(
+                EduSchoolDeliveryAttempt.attempt_number
+            ).all()
 
     def test_automatic_qualification_activation_and_payload(self):
         old = self.event(1)
@@ -140,10 +146,12 @@ class EduSchoolTurnstileTests(unittest.TestCase):
         event = self.event(1)
         self.service.queue_new_events()
         with patch("core.eduschool.turnstile.send_attendance", side_effect=lambda *_: (
-            set_person_hold(PERSON_ID, True, self.engine), DeliveryResult("sent", code=0)
+            set_person_hold(PERSON_ID, True, self.engine), DeliveryResult("sent", code=0, http_status=200)
         )[1]):
             self.assertEqual(self.service.deliver_due(), 0)
         self.assertEqual(self.outbox(event).status, "ambiguous")
+        self.assertEqual(self.attempts(event)[0].status, "sent")
+        self.assertEqual(self.attempts(event)[0].http_status, 200)
 
     def test_network_retry_duplicate_success_and_restart(self):
         self.service.prepare_activation()
@@ -151,8 +159,8 @@ class EduSchoolTurnstileTests(unittest.TestCase):
         event = self.event(1)
         self.service.queue_new_events()
         with patch("core.eduschool.turnstile.send_attendance", side_effect=[
-            DeliveryResult("retry", reason="HTTP 503"),
-            DeliveryResult("sent", code=0, backend_id="backend-1", duplicate=True),
+            DeliveryResult("retry", reason="HTTP 503", http_status=503),
+            DeliveryResult("sent", code=0, backend_id="backend-1", duplicate=True, http_status=200),
         ]) as sender:
             self.assertEqual(self.service.deliver_due(), 0)
             self.assertEqual(self.outbox(event).status, "retry")
@@ -163,6 +171,15 @@ class EduSchoolTurnstileTests(unittest.TestCase):
             self.assertEqual(sender.call_count, 2)
         self.assertEqual(self.outbox(event).status, "sent")
         self.assertTrue(self.outbox(event).duplicate)
+        attempts = self.attempts(event)
+        self.assertEqual([(item.attempt_number, item.status, item.http_status) for item in attempts], [
+            (1, "retry", 503), (2, "sent", 200),
+        ])
+        self.assertEqual(attempts[1].backend_event_id, "backend-1")
+        self.assertEqual(attempts[1].api_code, 0)
+        self.assertEqual(attempts[1].endpoint, "https://backend.eduschool.uz/external-api/turnstile/attendance")
+        self.assertNotIn(self.settings.api_key, attempts[1].endpoint)
+        self.assertIsNotNone(attempts[1].finished_at)
         self.assertTrue(EduSchoolTurnstileService(self.settings, self.engine).prepare_activation())
         self.assertEqual(self.service.queue_new_events(), 0)
 
@@ -174,6 +191,7 @@ class EduSchoolTurnstileTests(unittest.TestCase):
         with patch("core.eduschool.turnstile.send_attendance", return_value=DeliveryResult("ambiguous")):
             self.assertEqual(self.service.deliver_due(), 0)
         self.assertEqual(self.outbox(event).status, "ambiguous")
+        self.assertEqual(self.attempts(event)[0].status, "ambiguous")
         with self.service.Session.begin() as session:
             session.get(EduSchoolTurnstileOutbox, event).status = "sending"
         self.service.prepare_activation()
@@ -207,6 +225,7 @@ class EduSchoolTurnstileTests(unittest.TestCase):
             self.service.deliver_due()
         self.assertEqual(self.outbox(event).response_code, 55103)
         self.assertEqual(self.outbox(event).status, "blocked")
+        self.assertEqual(self.attempts(event)[0].api_code, 55103)
         disabled = EduSchoolTurnstileService(TurnstileSettings(), self.engine)
         self.assertFalse(disabled.prepare_activation())
         with disabled.Session() as session:
@@ -228,6 +247,7 @@ class EduSchoolTurnstileTests(unittest.TestCase):
             result = send_attendance(self.settings, payload)
         self.assertEqual(result.status, "sent")
         self.assertTrue(result.duplicate)
+        self.assertEqual(result.http_status, 200)
         self.assertEqual(opener.request.get_header("Apikey"), "test-other-key")
         class ErrorOpener:
             def __init__(self, error): self.error = error
@@ -237,13 +257,56 @@ class EduSchoolTurnstileTests(unittest.TestCase):
             error = HTTPError("https://example.test", status, "bad", {}, None)
             error.read = lambda _: ('{"code":%d}' % code).encode()
             with patch("core.eduschool.turnstile.build_opener", return_value=ErrorOpener(error)):
-                self.assertEqual(send_attendance(self.settings, payload).status, expected)
+                result = send_attendance(self.settings, payload)
+                self.assertEqual(result.status, expected)
+                self.assertEqual(result.http_status, status)
         with patch("core.eduschool.turnstile.build_opener", return_value=ErrorOpener(URLError(TimeoutError()))):
             self.assertEqual(send_attendance(self.settings, payload).status, "ambiguous")
         with patch("core.eduschool.turnstile.build_opener", return_value=ErrorOpener(URLError(socket.gaierror()))):
             self.assertEqual(send_attendance(self.settings, payload).status, "retry")
         with patch("core.eduschool.turnstile.build_opener", return_value=ErrorOpener(URLError(ConnectionResetError()))):
             self.assertEqual(send_attendance(self.settings, payload).status, "ambiguous")
+
+    def test_unexpected_sender_error_records_uncertain_attempt_without_retry(self):
+        self.service.prepare_activation()
+        self.service.refresh_auto_approvals()
+        event = self.event(7)
+        self.service.queue_new_events()
+        with self.assertLogs("vision_office.eduschool.turnstile", level="ERROR") as messages:
+            with patch("core.eduschool.turnstile.send_attendance", side_effect=RuntimeError("private body")):
+                self.assertEqual(self.service.deliver_due(), 0)
+        self.assertNotIn("private body", " ".join(messages.output))
+        self.assertEqual(self.outbox(event).status, "ambiguous")
+        attempt = self.attempts(event)[0]
+        self.assertEqual(attempt.status, "ambiguous")
+        self.assertEqual(attempt.error, "Unexpected RuntimeError")
+        self.assertNotIn("private body", attempt.error)
+        self.assertEqual(self.service.deliver_due(), 0)
+        self.assertEqual(len(self.attempts(event)), 1)
+
+    def test_interrupted_request_is_visible_without_claiming_success(self):
+        self.service.prepare_activation()
+        self.service.refresh_auto_approvals()
+        event = self.event(8)
+        self.service.queue_new_events()
+        def interrupted(*_):
+            with self.service.Session.begin() as session:
+                item = session.get(EduSchoolTurnstileOutbox, event)
+                self.assertEqual(item.status, "sending")
+                attempt = session.query(EduSchoolDeliveryAttempt).filter_by(event_id=event).one()
+                self.assertEqual(attempt.status, "sending")
+                self.assertIsNone(attempt.finished_at)
+            raise KeyboardInterrupt()
+        with patch("core.eduschool.turnstile.send_attendance", side_effect=interrupted):
+            with self.assertRaises(KeyboardInterrupt):
+                self.service.deliver_due()
+        self.assertEqual(self.outbox(event).status, "sending")
+        self.service.prepare_activation()
+        self.assertEqual(self.outbox(event).status, "ambiguous")
+        self.assertEqual(self.attempts(event)[0].status, "ambiguous")
+        self.assertIsNone(self.attempts(event)[0].finished_at)
+        self.assertEqual(self.service.deliver_due(), 0)
+        self.assertEqual(len(self.attempts(event)), 1)
 
 
 if __name__ == "__main__":

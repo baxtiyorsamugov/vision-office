@@ -56,7 +56,13 @@ the command above.
   skipped and do not replay when a photo becomes ready.
 - The outbox records one decision per local recognition event: `skipped`
   (ineligible), `pending`, `sending`, `retry`, `sent`, `blocked`, or `ambiguous`.
-  The profile shows recent decisions and response codes.
+  The profile shows recent decisions and response codes. Each actual POST also
+  creates a row in `eduschool_delivery_attempts` before the network call. Open
+  **Отправки** in the dashboard for its exact endpoint, local time, employee,
+  attempt number, HTTP status, EduSchool code, result, and error category.
+  `HTTP 200` alone is not success: only EduSchool `code: 0` marks it sent.
+  A pending event with no attempt row has not been posted yet. Existing events
+  from before this release have outbox status but no historical attempt rows.
 - `code: 0` and `duplicate: true` both mean success. HTTP 5xx and definite
   connection failures retry with backoff. Codes 10004, 10500, 10600, 51804,
   55103, 55101 and 422 stop for correction. Check the payload, key, branch, academic year,
@@ -66,6 +72,9 @@ the command above.
   timestamp and camera in EduSchool first. In the profile, mark **record exists**
   or **no record**. Only the latter authorizes a retry. EduSchool's documented
   duplicate window is not a general exactly-once guarantee.
+  An interrupted attempt and its outbox entry become `ambiguous` after restart;
+  the missing completion time shows that no response was recorded.
+  The attempt journal never stores API keys, request bodies, or response bodies.
 - An inactive profile, missing/duplicate `employeeNo`, or loss of an active
   FaceID photo removes qualification automatically. A changed source photo or
   number resets the prior qualification until the updated profile has an

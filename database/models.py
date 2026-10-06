@@ -143,6 +143,25 @@ class EduSchoolTurnstileOutbox(Base):
     sent_at = Column(DateTime(timezone=True), nullable=True)
 
 
+class EduSchoolDeliveryAttempt(Base):
+    """One durable, credential-free record for each attendance POST attempt."""
+    __tablename__ = "eduschool_delivery_attempts"
+    __table_args__ = (UniqueConstraint("event_id", "attempt_number"),)
+
+    id = Column(String(36), primary_key=True)
+    event_id = Column(String(36), ForeignKey("recognition_events.id"), nullable=False, index=True)
+    attempt_number = Column(Integer, nullable=False)
+    endpoint = Column(String(512), nullable=False)
+    started_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, index=True)
+    finished_at = Column(DateTime(timezone=True), nullable=True)
+    status = Column(String(20), nullable=False, default="sending", index=True)
+    http_status = Column(Integer, nullable=True)
+    api_code = Column(Integer, nullable=True)
+    backend_event_id = Column(String(64), nullable=True)
+    duplicate = Column(Boolean, nullable=False, default=False)
+    error = Column(String(255), nullable=True)
+
+
 class EdgeSyncState(Base):
     __tablename__ = 'edge_sync_state'
 

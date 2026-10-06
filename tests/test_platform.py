@@ -43,7 +43,7 @@ class PlatformTests(unittest.TestCase):
     def test_migrations_create_event_and_health_tables(self):
         run_migrations(self.engine)
         tables = set(inspect(self.engine).get_table_names())
-        self.assertTrue({"recognition_events", "health_incidents", "notification_outbox", "remote_person_reference_photos", "schema_migrations"}.issubset(tables))
+        self.assertTrue({"recognition_events", "health_incidents", "notification_outbox", "remote_person_reference_photos", "eduschool_delivery_attempts", "schema_migrations"}.issubset(tables))
 
     def test_migrations_upgrade_legacy_remote_person_table(self):
         with self.engine.begin() as connection:

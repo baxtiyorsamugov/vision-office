@@ -8,6 +8,7 @@ import os
 import re
 import socket
 import errno
+import uuid
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -23,7 +24,7 @@ from sqlalchemy.orm import sessionmaker
 from database.manager import get_engine
 from database.migrations import run_migrations
 from database.models import (
-    EduSchoolCatalogPerson, EduSchoolReferencePhoto, EduSchoolTurnstileOutbox,
+    EduSchoolCatalogPerson, EduSchoolDeliveryAttempt, EduSchoolReferencePhoto, EduSchoolTurnstileOutbox,
     EduSchoolTurnstileState, RecognitionEvent,
 )
 from core.eduschool.photos import normalized_embedding
@@ -32,6 +33,7 @@ from core.eduschool.photos import normalized_embedding
 logger = logging.getLogger("vision_office.eduschool.turnstile")
 OBJECT_ID = re.compile(r"^[0-9a-fA-F]{24}$")
 TERMINAL_CODES = {10004, 10500, 10600, 51804, 55103, 55101, 422}
+ATTENDANCE_PATH = "/external-api/turnstile/attendance"
 
 
 def as_utc(value: datetime) -> datetime:
@@ -104,12 +106,13 @@ class DeliveryResult:
     backend_id: str | None = None
     duplicate: bool = False
     reason: str | None = None
+    http_status: int | None = None
 
 
 def send_attendance(settings: TurnstileSettings, payload: dict) -> DeliveryResult:
     """Never redirect the API key; interpret EduSchool's envelope, not HTTP 400 text."""
     request = Request(
-        f"{settings.base_url}/external-api/turnstile/attendance",
+        f"{settings.base_url}{ATTENDANCE_PATH}",
         data=json.dumps(payload, separators=(",", ":")).encode("utf-8"),
         headers={"apikey": settings.api_key, "branch": settings.branch_id, "Content-Type": "application/json"},
         method="POST",
@@ -141,14 +144,15 @@ def send_attendance(settings: TurnstileSettings, payload: dict) -> DeliveryResul
         data = envelope.get("data") or {}
         if status == 200 and code == 0 and isinstance(data, dict):
             return DeliveryResult("sent", code=0, backend_id=str(data.get("_id") or "")[:64] or None,
-                                  duplicate=data.get("duplicate") is True)
+                                  duplicate=data.get("duplicate") is True, http_status=status)
         if isinstance(code, int) and code in TERMINAL_CODES:
-            return DeliveryResult("blocked", code=code, reason=f"EduSchool code {code}")
+            return DeliveryResult("blocked", code=code, reason=f"EduSchool code {code}", http_status=status)
     except (ValueError, TypeError, AttributeError):
         pass
     if status >= 500:
-        return DeliveryResult("retry", reason=f"HTTP {status}")
-    return DeliveryResult("ambiguous" if status == 200 else "blocked", reason=f"Unexpected HTTP {status} response")
+        return DeliveryResult("retry", reason=f"HTTP {status}", http_status=status)
+    return DeliveryResult("ambiguous" if status == 200 else "blocked", reason=f"Unexpected HTTP {status} response",
+                          http_status=status)
 
 
 class EduSchoolTurnstileService:
@@ -165,6 +169,10 @@ class EduSchoolTurnstileService:
             if state is None:
                 state = EduSchoolTurnstileState(id=1)
                 session.add(state)
+            session.query(EduSchoolDeliveryAttempt).filter_by(status="sending").update(
+                {"status": "ambiguous", "error": "Worker stopped during request; outcome unknown"},
+                synchronize_session=False,
+            )
             if not self.settings.enabled or error:
                 if state.enabled:
                     session.query(EduSchoolTurnstileOutbox).filter(
@@ -314,9 +322,29 @@ class EduSchoolTurnstileService:
             ).update({"status": "sending"}, synchronize_session=False)
             if not claimed:
                 return False
-        result = send_attendance(self.settings, payload)
+            attempt = EduSchoolDeliveryAttempt(
+                id=str(uuid.uuid4()), event_id=event_id, attempt_number=item.attempts + 1,
+                endpoint=f"{self.settings.base_url}{ATTENDANCE_PATH}",
+                started_at=datetime.now(timezone.utc), status="sending",
+            )
+            session.add(attempt)
+            attempt_id = attempt.id
+        try:
+            result = send_attendance(self.settings, payload)
+        except Exception as error:
+            logger.error("Unexpected EduSchool attendance delivery failure for event %s: %s",
+                         event_id, type(error).__name__)
+            result = DeliveryResult("ambiguous", reason=f"Unexpected {type(error).__name__}")
         with self.Session.begin() as session:
             item = session.get(EduSchoolTurnstileOutbox, event_id)
+            attempt = session.get(EduSchoolDeliveryAttempt, attempt_id)
+            attempt.finished_at = datetime.now(timezone.utc)
+            attempt.status = result.status
+            attempt.http_status = result.http_status
+            attempt.api_code = result.code
+            attempt.backend_event_id = result.backend_id
+            attempt.duplicate = result.duplicate
+            attempt.error = result.reason
             if item.status != "sending":
                 return False
             item.attempts += 1

@@ -5,7 +5,7 @@ import signal
 import subprocess
 import sys
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import cv2
@@ -22,7 +22,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from database.manager import get_engine
 from database.migrations import run_migrations
-from database.models import AccessLogOutbox, Attendance, Base, EdgeSyncState, EduSchoolCatalogPerson, EduSchoolCatalogSyncState, EduSchoolReferencePhoto, EduSchoolTurnstileOutbox, EduSchoolTurnstileState, Employee, HealthIncident, RecognitionEvent, RemotePerson, RemotePersonReferencePhoto, UnknownFaceObservation, UnknownVisitor, UnknownVisitorVisit
+from database.models import AccessLogOutbox, Attendance, Base, EdgeSyncState, EduSchoolCatalogPerson, EduSchoolCatalogSyncState, EduSchoolDeliveryAttempt, EduSchoolReferencePhoto, EduSchoolTurnstileOutbox, EduSchoolTurnstileState, Employee, HealthIncident, RecognitionEvent, RemotePerson, RemotePersonReferencePhoto, UnknownFaceObservation, UnknownVisitor, UnknownVisitorVisit
 from core.edge.config import load_edge_settings
 from core.local_time import as_utc, format_local, local_day_bounds_utc, local_now, local_today, to_local
 from core.performance import read_runtime_status
@@ -364,7 +364,7 @@ def render_navigation():
         with center:
             page = st.radio(
                 "Навигация",
-                ["Панель", "Аналитика", "Сотрудники", "Регистрация", "API"],
+                ["Панель", "Аналитика", "Сотрудники", "Регистрация", "Отправки", "API"],
                 horizontal=True,
                 label_visibility="collapsed",
             )
@@ -393,6 +393,10 @@ def render_control_center():
             RecognitionEvent.created_at >= day_start, RecognitionEvent.created_at < day_end,
         ).all()
         active_incidents = session.query(HealthIncident).filter(HealthIncident.status == "open").count()
+        delivery_attention = session.query(EduSchoolTurnstileOutbox).filter(
+            or_(EduSchoolTurnstileOutbox.status.in_(("retry", "ambiguous")),
+                (EduSchoolTurnstileOutbox.status == "blocked") & (EduSchoolTurnstileOutbox.attempts > 0))
+        ).count()
     finally:
         session.close()
 
@@ -476,6 +480,8 @@ def render_control_center():
         st.dataframe(recent_events, use_container_width=True, hide_index=True)
     if active_incidents:
         st.warning(f"Мониторинг: открытых инцидентов — {active_incidents}", icon=":material/info:")
+    if delivery_attention:
+        st.warning(f"Отправка EduSchool: {delivery_attention} событий требуют внимания. Подробности во вкладке «Отправки».")
     with st.expander("Производительность и состояние камер", icon=":material/monitoring:"):
         render_performance_panel()
     with st.expander("Тестовый контур", icon=":material/science:"):
@@ -1296,6 +1302,108 @@ def render_edge_status(edge_settings):
         st.dataframe(pd.DataFrame(enriched), use_container_width=True, hide_index=True)
 
 
+def render_delivery_log():
+    render_header("Отправки API", "Журнал посещений EduSchool и ответов сервера")
+    st.caption("Здесь показаны фактические попытки POST. События в очереди без попытки ещё не отправлялись.")
+
+    period_col, status_col, search_col = st.columns([1, 1, 2], gap="small")
+    with period_col:
+        period = st.selectbox("Период", ["24 часа", "7 дней", "30 дней", "Всё время"], index=1)
+    with status_col:
+        status_label = st.selectbox("Результат", ["Все", "Отправлено", "Повтор", "Ошибка", "Неясный исход"])
+    with search_col:
+        search = st.text_input("Поиск", placeholder="ФИО, табельный номер или ID события").strip()
+
+    status_values = {
+        "Отправлено": ("sent",), "Повтор": ("retry",),
+        "Ошибка": ("blocked",), "Неясный исход": ("ambiguous", "sending"),
+    }
+    status_names = {
+        "sent": "Отправлено", "retry": "Ожидает повтора", "blocked": "Ошибка",
+        "ambiguous": "Неясный исход", "sending": "В процессе",
+    }
+    days = {"24 часа": 1, "7 дней": 7, "30 дней": 30}
+    with Session() as session:
+        base = session.query(EduSchoolDeliveryAttempt).join(
+            EduSchoolTurnstileOutbox, EduSchoolTurnstileOutbox.event_id == EduSchoolDeliveryAttempt.event_id
+        ).join(RecognitionEvent, RecognitionEvent.id == EduSchoolDeliveryAttempt.event_id).outerjoin(
+            EduSchoolCatalogPerson, EduSchoolCatalogPerson.id == EduSchoolTurnstileOutbox.person_id
+        )
+        if period in days:
+            base = base.filter(EduSchoolDeliveryAttempt.started_at >= datetime.now(timezone.utc) - timedelta(days=days[period]))
+        totals = dict(base.with_entities(EduSchoolDeliveryAttempt.status, func.count(EduSchoolDeliveryAttempt.id))
+                      .group_by(EduSchoolDeliveryAttempt.status).all())
+        queued = session.query(EduSchoolTurnstileOutbox).filter(
+            EduSchoolTurnstileOutbox.status.in_(("pending", "retry"))
+        ).count()
+        metrics = st.columns(4)
+        metrics[0].metric("Отправлено", totals.get("sent", 0))
+        metrics[1].metric("Ожидает повтора", totals.get("retry", 0))
+        metrics[2].metric("Ошибка", totals.get("blocked", 0))
+        metrics[3].metric("Неясный исход", totals.get("ambiguous", 0) + totals.get("sending", 0))
+        st.caption(f"В очереди сейчас: {queued}. Коды и статус отражают ответ API; при неясном исходе проверьте EduSchool перед повтором.")
+
+        if status_label in status_values:
+            base = base.filter(EduSchoolDeliveryAttempt.status.in_(status_values[status_label]))
+        if search:
+            needle = f"%{search.lower()}%"
+            base = base.filter(or_(
+                func.lower(EduSchoolCatalogPerson.full_name).like(needle),
+                func.lower(EduSchoolCatalogPerson.employee_no).like(needle),
+                func.lower(EduSchoolDeliveryAttempt.event_id).like(needle),
+            ))
+        total = base.count()
+        if total == 0:
+            st.info("За выбранный период попыток отправки не найдено.")
+            return
+        pages = max(1, (total + 24) // 25)
+        page = st.selectbox("Страница", range(1, pages + 1), format_func=lambda value: f"{value} / {pages}") if pages > 1 else 1
+        rows = base.with_entities(
+            EduSchoolDeliveryAttempt, RecognitionEvent.person_name,
+            EduSchoolCatalogPerson.full_name, EduSchoolCatalogPerson.employee_no,
+            EduSchoolTurnstileOutbox.status, RecognitionEvent.event_type,
+        ).order_by(EduSchoolDeliveryAttempt.started_at.desc(), EduSchoolDeliveryAttempt.id.desc()
+                   ).offset((page - 1) * 25).limit(25).all()
+
+        st.caption(f"Найдено: {total}")
+        st.dataframe(pd.DataFrame([{
+            "Время": format_local(attempt.started_at, "%d.%m.%Y %H:%M:%S"),
+            "Сотрудник": full_name or person_name or "—",
+            "Номер": employee_no or "—",
+            "Направление": "Вход" if event_type == "entry" else "Выход",
+            "Адрес": attempt.endpoint,
+            "HTTP": attempt.http_status,
+            "Код API": attempt.api_code,
+            "Результат": status_names.get(attempt.status, attempt.status),
+            "Попытка": attempt.attempt_number,
+            "Причина": attempt.error or "",
+        } for attempt, person_name, full_name, employee_no, _, event_type in rows]),
+            use_container_width=True, hide_index=True)
+
+        with st.expander("Детали попытки"):
+            selected = st.selectbox(
+                "Запись", rows,
+                format_func=lambda row: (
+                    f"{format_local(row[0].started_at, '%d.%m %H:%M:%S')} · "
+                    f"{row[2] or row[1] or 'Сотрудник'} · {status_names.get(row[0].status, row[0].status)}"
+                ),
+            )
+            attempt, _, _, _, queue_status, _ = selected
+            st.code(attempt.endpoint, language=None)
+            st.write(f"Событие: `{attempt.event_id}` · попытка №{attempt.attempt_number}")
+            st.write(f"Начало: {format_local(attempt.started_at)} · завершение: "
+                     f"{format_local(attempt.finished_at) if attempt.finished_at else 'исход не зафиксирован'}")
+            st.write(f"HTTP: {attempt.http_status if attempt.http_status is not None else 'нет ответа'} · "
+                     f"код API: {attempt.api_code if attempt.api_code is not None else 'нет'} · "
+                     f"очередь: {queue_status}")
+            if attempt.backend_event_id:
+                st.write(f"ID EduSchool: `{attempt.backend_event_id}`")
+            if attempt.duplicate:
+                st.caption("Сервер отметил запись как дубликат.")
+            if attempt.error:
+                st.warning(attempt.error)
+
+
 def render_developer_api():
     render_header("API для разработчиков", "Read-only интеграция с сотрудниками и событиями присутствия")
     api_running = managed_runtime() or process_running("api_process")
@@ -1355,5 +1463,7 @@ elif page == "Сотрудники":
     render_people()
 elif page == "Регистрация":
     render_registration()
+elif page == "Отправки":
+    render_delivery_log()
 else:
     render_developer_api()
