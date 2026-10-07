@@ -364,7 +364,7 @@ def render_navigation():
         with center:
             page = st.radio(
                 "Навигация",
-                ["Панель", "Аналитика", "Сотрудники", "Регистрация", "Отправки", "API"],
+                ["Панель", "Аналитика", "Отчёты", "Сотрудники", "Регистрация", "Отправки", "API"],
                 horizontal=True,
                 label_visibility="collapsed",
             )
@@ -605,6 +605,108 @@ def render_analytics():
     st.subheader("Первое появление")
     first_events["Время"] = first_events["Дата и время"].dt.strftime("%H:%M")
     st.dataframe(first_events[["ФИО", "Роль", "Время", "Статус"]], use_container_width=True, hide_index=True, column_config={"Статус": st.column_config.TextColumn(width="small")})
+
+
+def render_attendance_reports():
+    from core.attendance_reports import build_excel, build_pdf, load_attendance_report
+
+    render_header("Отчёты по посещениям", "Сотрудники и ученики · данные локальной PostgreSQL")
+    today = local_today()
+    period = st.selectbox("Период", ["Сегодня", "Вчера", "Последние 7 дней", "Текущий месяц", "Свой период"],
+                          index=3, width=280)
+    if period == "Сегодня":
+        start = end = today
+    elif period == "Вчера":
+        start = end = today - timedelta(days=1)
+    elif period == "Последние 7 дней":
+        start, end = today - timedelta(days=6), today
+    elif period == "Текущий месяц":
+        start, end = today.replace(day=1), today
+    else:
+        start_col, end_col = st.columns(2, gap="small")
+        with start_col:
+            start = st.date_input("С", value=today, format="DD.MM.YYYY")
+        with end_col:
+            end = st.date_input("По", value=today, format="DD.MM.YYYY")
+    options_col, branch_col = st.columns([1, 2], gap="small")
+    with options_col:
+        include_local = st.toggle("Локальные сотрудники", value=False)
+    with branch_col:
+        branch_name = st.text_input("Название филиала", value="Филиал EduSchool", max_chars=100)
+    parameters = (start, end, include_local, branch_name)
+    if st.button("Сформировать отчёт", type="primary", icon=":material/description:"):
+        st.session_state.pop("attendance_report_bundle", None)
+        try:
+            with st.spinner("Формируем отчёт"):
+                report = load_attendance_report(engine, start, end, include_local=include_local)
+                pdf_bytes = build_pdf(report, branch_name=branch_name)
+                excel_bytes = build_excel(report, branch_name=branch_name)
+            st.session_state["attendance_report_bundle"] = (parameters, report, pdf_bytes, excel_bytes)
+        except ValueError as error:
+            st.error(str(error))
+        except Exception:
+            st.error("Не удалось сформировать отчёт. Проверьте логи UI и повторите попытку.")
+
+    bundle = st.session_state.get("attendance_report_bundle")
+    if not bundle or bundle[0] != parameters:
+        return
+    _, report, pdf_bytes, excel_bytes = bundle
+    st.markdown("<hr class='section-rule'>", unsafe_allow_html=True)
+    metrics = st.columns(4)
+    metrics[0].metric("Сотрудники", report.employee_count)
+    metrics[1].metric("Ученики", report.student_count)
+    metrics[2].metric("Завершённые визиты", report.completed_count)
+    metrics[3].metric("Неполные данные", report.incomplete_count)
+    if report.incomplete_count:
+        st.warning("Есть входы без выхода или выходы без входа. Проверьте детальный журнал.")
+    filename = f"vision-office-attendance-{start:%Y%m%d}-{end:%Y%m%d}"
+    pdf_col, excel_col = st.columns(2, gap="small")
+    with pdf_col:
+        st.download_button("Скачать PDF для руководителя", pdf_bytes, file_name=f"{filename}.pdf",
+                           mime="application/pdf", icon=":material/picture_as_pdf:", use_container_width=True)
+    with excel_col:
+        st.download_button("Скачать подробный Excel", excel_bytes, file_name=f"{filename}.xlsx",
+                           mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                           icon=":material/table_view:", use_container_width=True)
+
+    st.subheader("По дням")
+    st.dataframe(pd.DataFrame([{
+        "Дата": row.day.strftime("%d.%m.%Y"), "Сотрудники": row.employees,
+        "Ученики": row.students, "Завершённые визиты": row.completed_visits,
+        "Фиксации": row.observations,
+    } for row in report.days]), use_container_width=True, hide_index=True)
+    staff_tab, students_tab, visits_tab, events_tab = st.tabs(["Сотрудники", "Ученики", "Визиты", "Все фиксации"])
+    for tab, is_student in ((staff_tab, False), (students_tab, True)):
+        with tab:
+            people = [row for row in report.people if (row.person_type == "eduschool_student") == is_student]
+            st.caption(f"Найдено: {len(people)} · показаны первые 100")
+            if not people:
+                st.info("За выбранный период фиксаций нет.")
+                continue
+            st.dataframe(pd.DataFrame([{
+                "ФИО": row.name, "Источник": "Локальный" if row.person_type == "local_employee" else "EduSchool",
+                "Дней": row.days, "Визитов": row.visits,
+                "Время, ч:м": f"{row.completed_minutes // 60:02d}:{row.completed_minutes % 60:02d}" if row.visits else "—",
+                "Первый вход": format_local(row.first_entry) if row.first_entry else "—",
+                "Последний выход": format_local(row.last_exit) if row.last_exit else "—",
+                "Неполные": row.incomplete,
+            } for row in people[:100]]), use_container_width=True, hide_index=True)
+    with visits_tab:
+        st.caption(f"Найдено: {len(report.visits)} · показаны первые 100")
+        st.dataframe(pd.DataFrame([{
+            "ФИО": row.name, "Дата": row.day.strftime("%d.%m.%Y"),
+            "Вход": format_local(row.entry_at) if row.entry_at else "—",
+            "Выход": format_local(row.exit_at) if row.exit_at else "—",
+            "Состояние": {"complete": "Завершён", "no_exit": "Нет выхода", "no_entry": "Нет входа"}[row.status],
+        } for row in report.visits[:100]]), use_container_width=True, hide_index=True)
+    with events_tab:
+        st.caption(f"Всего сохранённых фиксаций: {len(report.events)} · показаны первые 100")
+        st.dataframe(pd.DataFrame([{
+            "Время": row.local_at.strftime("%d.%m.%Y %H:%M:%S"), "ФИО": row.name,
+            "Тип": "Ученик" if row.person_type == "eduschool_student" else "Сотрудник",
+            "Событие": "Вход" if row.direction == "entry" else "Выход",
+            "Камера": row.camera_id, "Отметка": row.mark,
+        } for row in report.events[:100]]), use_container_width=True, hide_index=True)
 
 
 def unknown_state_label(state):
@@ -1459,6 +1561,8 @@ if page == "Панель":
     render_control_center()
 elif page == "Аналитика":
     render_analytics()
+elif page == "Отчёты":
+    render_attendance_reports()
 elif page == "Сотрудники":
     render_people()
 elif page == "Регистрация":
