@@ -19,7 +19,7 @@ FACEID_MODEL_PACK = "buffalo_l"
 def ensure_faceid_models_available() -> None:
     """Report the missing FaceID pack instead of an InsightFace download traceback."""
     pack_directory = INSIGHTFACE_MODEL_ROOT / "models" / FACEID_MODEL_PACK
-    if any(pack_directory.glob("*.onnx")):
+    if all((pack_directory / name).is_file() for name in ("det_10g.onnx", "w600k_r50.onnx")):
         return
     raise ConfigurationError(
         f"FaceID model pack '{FACEID_MODEL_PACK}' was not found in {pack_directory}. "
@@ -118,7 +118,7 @@ class FaceRecognizer:
             for model in self.app.models.values()
         )
 
-    def get_embedding(self, face_img, *, require_single=False):
+    def get_embedding(self, face_img, *, require_single=False, target_center=False):
         try:
             faces = self.app.get(face_img)
         except Exception as error:
@@ -129,6 +129,16 @@ class FaceRecognizer:
         if require_single and len(faces) != 1:
             return None
         if len(faces) > 0:
+            if target_center:
+                center = np.array([face_img.shape[1] / 2, face_img.shape[0] / 2])
+                # A padded YOLO crop can contain a neighbour. Match its central
+                # face, not InsightFace's first (usually largest) detection.
+                candidates = [face for face in faces if
+                              face.bbox[0] <= center[0] <= face.bbox[2] and
+                              face.bbox[1] <= center[1] <= face.bbox[3]]
+                if len(candidates) != 1:
+                    return None
+                return candidates[0].embedding
             return faces[0].embedding
         return None
 

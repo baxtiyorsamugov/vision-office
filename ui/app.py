@@ -25,7 +25,7 @@ from database.migrations import run_migrations
 from database.models import AccessLogOutbox, Attendance, Base, EdgeSyncState, EduSchoolCatalogPerson, EduSchoolCatalogSyncState, EduSchoolDeliveryAttempt, EduSchoolReferencePhoto, EduSchoolTurnstileOutbox, EduSchoolTurnstileState, Employee, HealthIncident, RecognitionEvent, RemotePerson, RemotePersonReferencePhoto, UnknownFaceObservation, UnknownVisitor, UnknownVisitorVisit
 from core.edge.config import load_edge_settings
 from core.local_time import as_utc, format_local, local_day_bounds_utc, local_now, local_today, to_local
-from core.performance import read_runtime_status
+from core.performance import read_runtime_status, configured_camera_statuses
 from core.preview import preview_path
 from core.unknown_visitors import UnknownVisitorService
 
@@ -39,8 +39,14 @@ def apply_theme():
 
 
 apply_theme()
-engine = get_engine()
-run_migrations(engine)
+@st.cache_resource
+def ui_engine():
+    value = get_engine()
+    run_migrations(value)
+    return value
+
+
+engine = ui_engine()
 Session = sessionmaker(bind=engine)
 
 for state_key in ("live_process", "demo_process", "api_process"):
@@ -364,7 +370,7 @@ def render_navigation():
         with center:
             page = st.radio(
                 "Навигация",
-                ["Панель", "Аналитика", "Отчёты", "Сотрудники", "Регистрация", "Отправки", "API"],
+                ["Панель", "Камеры", "Аналитика", "Отчёты", "Сотрудники", "Регистрация", "Отправки", "API"],
                 horizontal=True,
                 label_visibility="collapsed",
             )
@@ -374,24 +380,25 @@ def render_navigation():
 
 
 def render_control_center():
+    from core.analytics import utc_hour_expression
     render_header("Операционный центр", "Обзор присутствия и состояния камер")
     edge_settings = load_edge_settings()
-    runtime = read_runtime_status() or {}
-    live_running = bool(runtime.get("running")) if managed_runtime() else process_running("live_process")
+    cameras = configured_camera_statuses()
+    live_running = any(item.get("running") and item.get("ai_ready") for item in cameras)
     demo_running = process_running("demo_process")
     session = Session()
     try:
-        employee_count = (
-            session.query(RemotePerson).filter(RemotePerson.active.is_(True)).count() + session.query(Employee).count()
-            if edge_settings.configured else session.query(Employee).count()
-        )
-        day_start, day_end = day_bounds(local_today())
-        today_count = session.query(Attendance.employee_id).filter(
-            Attendance.timestamp >= day_start, Attendance.timestamp < day_end,
-        ).distinct().count()
-        event_times = session.query(RecognitionEvent.created_at).filter(
+        employee_count = session.query(EduSchoolCatalogPerson).filter_by(active=True, person_type="employee").count() + session.query(Employee).count()
+        day_start, day_end = map(as_utc, day_bounds(local_today()))
+        today_count = session.query(RecognitionEvent.person_type, RecognitionEvent.person_id).filter(
             RecognitionEvent.created_at >= day_start, RecognitionEvent.created_at < day_end,
-        ).all()
+            RecognitionEvent.person_type.in_(("eduschool_employee", "eduschool_student", "local_employee")),
+            RecognitionEvent.person_id.isnot(None),
+        ).distinct().count()
+        hour_expression = utc_hour_expression(engine, RecognitionEvent.created_at)
+        event_hours = session.query(hour_expression.label("hour"), func.count()).filter(
+            RecognitionEvent.created_at >= day_start, RecognitionEvent.created_at < day_end,
+        ).group_by(hour_expression).all()
         active_incidents = session.query(HealthIncident).filter(HealthIncident.status == "open").count()
         delivery_attention = session.query(EduSchoolTurnstileOutbox).filter(
             or_(EduSchoolTurnstileOutbox.status.in_(("retry", "ambiguous")),
@@ -400,13 +407,13 @@ def render_control_center():
     finally:
         session.close()
 
-    cameras = runtime.get("cameras") or ([runtime] if runtime.get("camera_id") else [])
-    connected = sum(camera.get("stream_status") == "connected" for camera in cameras)
+    active_cameras = [camera for camera in cameras if camera.get("enabled")]
+    connected = sum(camera.get("running") and camera.get("stream_status") == "connected" for camera in active_cameras)
     cards = [
-        ("События сегодня", len(event_times), "Обнаружения на всех камерах", True),
-        ("Сотрудники", employee_count, "Активные ERP и локальные профили", False),
-        ("Сегодня замечены", today_count, "Локальная посещаемость", False),
-        ("Камеры на связи", f"{connected} / {len(cameras)}", "Состояние видеопотоков", False),
+        ("События сегодня", sum(count for _, count in event_hours), "Обнаружения на всех камерах", True),
+        ("Сотрудники", employee_count, "EduSchool и локальные профили", False),
+        ("Сегодня замечены", today_count, "Сотрудники и ученики", False),
+        ("Камеры на связи", f"{connected} / {len(active_cameras)}", "Активные камеры", False),
     ]
     st.markdown('<div class="summary-grid">' + "".join(
         f'<div class="summary-card{" featured" if featured else ""}">'
@@ -424,8 +431,9 @@ def render_control_center():
     with chart_col, st.container(key="activity-chart"):
         st.markdown('<p class="panel-title">Активность в течение дня</p><p class="panel-note">Обнаружения по часам</p>', unsafe_allow_html=True)
         hourly = [0] * 24
-        for (timestamp,) in event_times:
-            hourly[to_local(timestamp).hour] += 1
+        for utc_hour, count in event_hours:
+            timestamp = datetime.combine(local_today(), datetime.min.time()).replace(hour=int(utc_hour), tzinfo=timezone.utc)
+            hourly[to_local(timestamp).hour] += count
         current_hour = local_now().hour
         figure = go.Figure(go.Bar(
             x=list(range(24)), y=hourly,
@@ -448,16 +456,18 @@ def render_control_center():
         camera = next((item for item in cameras if item.get("stream_status") == "connected"), cameras[0] if cameras else {})
         path = preview_path(camera.get("camera_id", "camera"))
         shot = None
+        shot_time = ""
         try:
             if path.is_file():
                 shot = profile_photo_data_uri(path)
+                shot_time = format_local(datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc))
         except OSError:
             pass
         if shot:
             st.markdown(
                 f'<img class="camera-shot" src="{shot}" alt="Последний сохранённый кадр камеры">'
                 f'<div class="camera-caption">{html.escape(str(camera.get("camera_name") or camera.get("camera_id") or "Камера"))}'
-                f' · Снимок при открытии страницы</div>',
+                f' · Кадр от {html.escape(shot_time)}</div>',
                 unsafe_allow_html=True,
             )
         else:
@@ -496,48 +506,8 @@ def render_control_center():
 
 
 def render_performance_panel():
-    st.markdown("<hr class='section-rule'>", unsafe_allow_html=True)
-    st.subheader("Производительность edge-устройства")
-    status = read_runtime_status()
-    if not status:
-        st.info("Показатели появятся после запуска камеры. Dashboard не обрабатывает видеокадры.")
-        return
-    if not status.get("running"):
-        st.info("Камера остановлена. Последние показатели сброшены.")
-        return
-    cameras = status.get("cameras")
-    if cameras:
-        st.dataframe(
-            pd.DataFrame([{
-                "Камера": item.get("camera_name") or item.get("camera_id"),
-                "Статус": item.get("stream_status", "—"),
-                "YOLO": item.get("yolo_device", "—"),
-                "FaceID": item.get("face_device", "—"),
-                "Причина CPU": item.get("yolo_fallback_reason") or item.get("face_fallback_reason") or "—",
-                "Захват FPS": item.get("capture_fps", 0),
-                "Детекция FPS": item.get("detection_fps", 0),
-                "Возраст кадра, ms": item.get("frame_age_ms", "—"),
-                "FaceID p95, ms": item.get("face_ms_p95", "—"),
-                "Reconnect": item.get("reconnect_attempts", 0),
-            } for item in cameras]),
-            use_container_width=True,
-            hide_index=True,
-        )
-        return
-    metrics = st.columns(5)
-    metrics[0].metric("YOLO", status.get("yolo_device", "—"))
-    metrics[1].metric("Захват", f"{status.get('capture_fps', 0)} FPS")
-    metrics[2].metric("Детекция", f"{status.get('detection_fps', 0)} FPS")
-    metrics[3].metric("YOLO p95", f"{status.get('detection_ms_p95') or '—'} ms")
-    metrics[4].metric("FaceID p95", f"{status.get('face_ms_p95') or '—'} ms")
-    st.caption(
-        f"Возраст кадра: {status.get('frame_age_ms') or '—'} ms · "
-        f"FaceID задач: {status.get('face_tasks', 0)} · "
-        f"Пропущено задач: {status.get('face_dropped', 0)} · "
-        f"Очередь FaceID: {status.get('face_queue_size', '—')} · "
-        f"FaceID: {status.get('face_device', '—')} · "
-        f"Причина CPU: {status.get('yolo_fallback_reason') or status.get('face_fallback_reason') or '—'}"
-    )
+    from ui.cameras import render_runtime_panel
+    render_runtime_panel(engine)
 
 
 def load_attendance(selected_date):
@@ -573,38 +543,42 @@ def load_recent_events(limit):
 
 
 def render_analytics():
-    render_header("Аналитика присутствия", "Сводка входов и дисциплины по выбранной дате")
-    selected_date = st.date_input("Дата", value=local_today(), label_visibility="collapsed", width=240, format="DD.MM.YYYY")
-    df = load_attendance(selected_date)
-    if df.empty:
-        st.markdown("<div class='empty-state'>За выбранную дату событий нет.</div>", unsafe_allow_html=True)
-        return
-    df["Дата и время"] = pd.to_datetime(df["Дата и время"])
-    first_events = df.sort_values("Дата и время").drop_duplicates(subset=["ФИО"], keep="first").copy()
-    work_start = pd.Timestamp(datetime.combine(selected_date, datetime.min.time())).replace(hour=9)
-    first_events["Статус"] = np.where(first_events["Дата и время"] <= work_start, "Вовремя", "Опоздание")
+    from core.analytics import TYPE_LABELS, daily_analytics
+    render_header("Аналитика посещений", "Сотрудники и ученики · время Ташкента")
+    cols = st.columns([1, 1, 2])
+    selected_date = cols[0].date_input("Дата", value=local_today(), format="DD.MM.YYYY")
+    kind = cols[1].selectbox("Категория", [None, *TYPE_LABELS], format_func=lambda value: TYPE_LABELS.get(value, "Все"))
+    search = cols[2].text_input("Поиск по имени", key="analytics-search")
+    filter_key = (selected_date.isoformat(), kind, search)
+    if st.session_state.get("analytics-filter") != filter_key:
+        st.session_state["analytics-page"] = 1
+        st.session_state["analytics-filter"] = filter_key
+    page_number = int(st.session_state.get("analytics-page", 1))
+    result = daily_analytics(engine, selected_date, person_type=kind, search=search, page=page_number)
     metrics = st.columns(3)
-    metrics[0].metric("Присутствуют", len(first_events))
-    metrics[1].metric("Вовремя", int((first_events["Статус"] == "Вовремя").sum()))
-    metrics[2].metric("Опоздания", int((first_events["Статус"] == "Опоздание").sum()))
-    st.markdown("<hr class='section-rule'>", unsafe_allow_html=True)
-
-    chart_col, status_col = st.columns([2, 1], gap="large")
-    hourly = first_events.assign(Час=first_events["Дата и время"].dt.hour).groupby("Час").size().reset_index(name="Количество")
-    with chart_col, st.container(key="analytics-arrivals"):
-        st.subheader("Приходы по часам")
-        arrivals = go.Figure(go.Bar(x=hourly["Час"], y=hourly["Количество"], width=0.65, marker_color="#108455", hovertemplate="%{x}:00 · %{y} сотрудника<extra></extra>"))
-        arrivals.update_layout(height=280, barcornerradius=10, margin=dict(l=0, r=0, t=12, b=0), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font=dict(family="Segoe UI, Arial, sans-serif", size=12, color="#737b76"), xaxis=dict(title=None, range=[-0.5, 23.5], tickmode="linear", dtick=3, gridcolor="#edf0ed"), yaxis=dict(title=None, rangemode="tozero", dtick=1 if hourly["Количество"].max() < 5 else None, gridcolor="#edf0ed"), showlegend=False)
-        st.plotly_chart(arrivals, use_container_width=True, config={"displayModeBar": False})
-    with status_col, st.container(key="analytics-discipline"):
-        st.subheader("Дисциплина")
-        status_counts = first_events["Статус"].value_counts()
-        discipline = go.Figure(go.Pie(labels=status_counts.index, values=status_counts.values, hole=.78, marker_colors=["#108455" if item == "Вовремя" else "#b44e58" for item in status_counts.index], textinfo="none"))
-        discipline.update_layout(height=280, margin=dict(l=8, r=8, t=12, b=0), font=dict(family="Segoe UI, Arial, sans-serif", size=12, color="#737b76"), legend=dict(orientation="h", x=0.5, xanchor="center", y=-0.05), paper_bgcolor="rgba(0,0,0,0)", showlegend=True)
-        st.plotly_chart(discipline, use_container_width=True, config={"displayModeBar": False})
-    st.subheader("Первое появление")
-    first_events["Время"] = first_events["Дата и время"].dt.strftime("%H:%M")
-    st.dataframe(first_events[["ФИО", "Роль", "Время", "Статус"]], use_container_width=True, hide_index=True, column_config={"Статус": st.column_config.TextColumn(width="small")})
+    metrics[0].metric("Замечены за день", result["total"])
+    metrics[1].metric("Фиксации входа", result["entries"])
+    metrics[2].metric("Фиксации выхода", result["exits"])
+    if not result["total"]:
+        st.info("За выбранную дату и категорию фиксаций нет.")
+        return
+    figure = go.Figure()
+    for name, field, color in (("Вход", "entries", "#108455"), ("Выход", "exits", "#487cad")):
+        figure.add_bar(name=name, x=list(range(24)), y=[row[field] for row in result["hourly"]], marker_color=color)
+    figure.update_layout(height=250, barmode="group", margin=dict(l=0, r=0, t=10, b=0),
+                         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                         xaxis=dict(tickmode="linear", dtick=2, title="Час"), yaxis=dict(title="Фиксации", rangemode="tozero"))
+    st.plotly_chart(figure, use_container_width=True, config={"displayModeBar": False})
+    if st.session_state.get("analytics-page", 1) != result["page"]:
+        st.session_state["analytics-page"] = result["page"]
+    st.number_input("Страница", min_value=1, max_value=result["pages"], step=1, key="analytics-page", width=180)
+    st.dataframe(pd.DataFrame([{
+        "ФИО": row["name"] or "Без имени", "Категория": TYPE_LABELS[row["person_type"]],
+        "Первый вход": format_local(row["first_entry"], "%H:%M:%S") if row["first_entry"] else "—",
+        "Последний выход": format_local(row["last_exit"], "%H:%M:%S") if row["last_exit"] else "—",
+        "Входы": row["entries"], "Выходы": row["exits"], "ID": row["person_id"],
+    } for row in result["rows"]]), hide_index=True, use_container_width=True)
+    st.caption("Фиксации не равны отдельным визитам. Парные входы и выходы с длительностью доступны в разделе «Отчёты».")
 
 
 def render_attendance_reports():
@@ -1559,6 +1533,10 @@ page = render_navigation()
 
 if page == "Панель":
     render_control_center()
+elif page == "Камеры":
+    from ui.cameras import render_cameras
+    render_header("Камеры", "Потоки, направление прохода и производительность")
+    render_cameras(engine)
 elif page == "Аналитика":
     render_analytics()
 elif page == "Отчёты":

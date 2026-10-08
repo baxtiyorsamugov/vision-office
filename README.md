@@ -10,6 +10,7 @@ Vision Office is a local face-recognition and attendance platform for RTSP camer
 - [Operations runbook](docs/OPERATIONS_RUNBOOK.md)
 - [Docker deployment runbook](docs/DOCKER_RUNBOOK.md)
 - [Automatic GPU/CPU selection and recovery](docs/GPU_RUNTIME.md)
+- [Camera dashboard, recognition diagnostics and acceptance checklist](docs/RECOGNITION_AUDIT_RUNBOOK.md)
 - [Local PostgreSQL, hourly ERP sync and reference-photo runbook](docs/POSTGRESQL_RUNBOOK.md)
 - [Transfer ERP employees, photos and FaceID to another device](docs/CATALOG_TRANSFER_RUNBOOK.md)
 - [Unknown visitors catalog runbook](docs/UNKNOWN_VISITORS_RUNBOOK.md)
@@ -29,6 +30,12 @@ any profile. See the runbook before a live attendance test.
 ## Two-camera setup
 
 Add two active camera entries to the local `config/settings.yaml`, assigning `event_type: entry` to the entrance stream and `event_type: exit` to the exit stream. `main.py` starts an isolated worker for each camera; an RTSP failure reconnects independently. See [the operations runbook](docs/OPERATIONS_RUNBOOK.md) for the full configuration and acceptance procedure.
+
+The **Cameras** dashboard also supports adding, editing, pausing and restarting
+individual cameras. Device-local overrides live in `data/camera_controls.json`
+and take precedence over matching YAML camera IDs. Integration settings and API
+device mappings are not edited by these controls. Existing cameras keep their
+configured processing profile until an operator changes it.
 
 ## Install on another Windows computer
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, unquote
 
 import cv2
 
@@ -44,6 +44,7 @@ class VideoStream:
         self.reconnect_attempts = 0
         self.last_error = None
         self.stopped = False
+        self.stop_event = threading.Event()
         self.thread = None
 
     def start(self):
@@ -52,8 +53,18 @@ class VideoStream:
         return self
 
     def _open(self) -> bool:
+        stream = None
         try:
-            stream = cv2.VideoCapture(self.src)
+            source = 0 if str(self.src) == "0" else self.src
+            if str(source).startswith("file://"):
+                source = unquote(urlsplit(str(source)).path)
+            if not self.is_file and source != 0:
+                stream = cv2.VideoCapture(source, cv2.CAP_FFMPEG, [
+                    cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 3000,
+                    cv2.CAP_PROP_READ_TIMEOUT_MSEC, 3000,
+                ])
+            else:
+                stream = cv2.VideoCapture(source)
             if not self.is_file:
                 stream.set(cv2.CAP_PROP_BUFFERSIZE, 1)
             ok, frame = stream.read()
@@ -72,11 +83,13 @@ class VideoStream:
             logger.info("Camera connected source=%s", self.source_label)
             return True
         except Exception as error:
+            if stream is not None:
+                stream.release()
             with self.lock:
                 self.connected = False
-                self.last_error = str(error)
+                self.last_error = f"Camera open failed ({type(error).__name__})"
                 self.reconnect_attempts += 1
-            logger.warning("Camera connection failed source=%s error=%s", self.source_label, error)
+            logger.warning("Camera connection failed source=%s error=%s", self.source_label, type(error).__name__)
             return False
 
     def _disconnect(self, reason: str) -> None:
@@ -90,13 +103,19 @@ class VideoStream:
         logger.warning("Camera disconnected source=%s reason=%s", self.source_label, reason)
 
     def update(self):
+        try:
+            self._update_loop()
+        finally:
+            self._disconnect("Reader stopped")
+
+    def _update_loop(self):
         retry_delay = 0.5
         while not self.stopped:
             with self.lock:
                 stream = self.stream
             if stream is None:
                 if not self._open():
-                    time.sleep(retry_delay)
+                    self.stop_event.wait(retry_delay)
                     retry_delay = min(self.reconnect_max_seconds, retry_delay * 2)
                     continue
                 retry_delay = 0.5
@@ -106,9 +125,10 @@ class VideoStream:
                 ok, frame = stream.read()
                 if not ok or frame is None:
                     stream.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    self.stop_event.wait(0.05)
                     continue
                 self._publish(frame)
-                time.sleep(0.03)
+                self.stop_event.wait(0.03)
                 continue
 
             # grab/retrieve keeps only the newest RTSP frame and avoids latency buildup.
@@ -121,7 +141,7 @@ class VideoStream:
                 self._disconnect("RTSP retrieve failed")
             else:
                 self._disconnect("RTSP grab failed")
-            time.sleep(retry_delay)
+            self.stop_event.wait(retry_delay)
             retry_delay = min(self.reconnect_max_seconds, retry_delay * 2)
 
     def _publish(self, frame) -> None:
@@ -138,7 +158,7 @@ class VideoStream:
 
     def read(self):
         with self.lock:
-            if self.frame_index == self.last_read_index:
+            if not self.connected or time.monotonic() - self.published_at > 2 or self.frame_index == self.last_read_index:
                 return None
             self.last_read_index = self.frame_index
             return self.frame.copy() if self.frame is not None else None
@@ -146,7 +166,7 @@ class VideoStream:
     def stats(self):
         with self.lock:
             return {
-                "capture_fps": round(self.capture_fps, 1),
+                "capture_fps": round(self.capture_fps, 1) if self.connected and time.monotonic() - self.published_at < 2 else 0,
                 "frame_age_ms": round(max(0.0, time.monotonic() - self.published_at) * 1000, 1) if self.published_at else None,
                 "stream_status": "connected" if self.connected else "reconnecting",
                 "reconnect_attempts": self.reconnect_attempts,
@@ -155,9 +175,8 @@ class VideoStream:
 
     def stop(self):
         self.stopped = True
-        with self.lock:
-            stream, self.stream = self.stream, None
-        if stream is not None:
-            stream.release()
+        self.stop_event.set()
+        # Only the reader releases VideoCapture; concurrent release/read can
+        # crash the FFmpeg backend. Network calls have bounded timeouts above.
         if self.thread is not None:
-            self.thread.join(timeout=2)
+            self.thread.join(timeout=7)

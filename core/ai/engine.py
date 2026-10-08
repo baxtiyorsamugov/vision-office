@@ -19,6 +19,9 @@ UNKNOWN_STATUS = "Неизвестный"
 RETRY_INTERVAL_SEC = 0.3
 UNKNOWN_RETRY_INTERVAL_SEC = 1.5
 EMPLOYEE_CACHE_TTL_SEC = 5
+FACE_TASK_MAX_AGE_SEC = 2.0
+TRACK_TTL_SEC = 10.0
+KNOWN_RECHECK_SEC = 5.0
 # RTX 3070 comfortably sustains this rate at the configured image size.  Keeping
 # this close to the live 25 FPS stream makes an overlay feel attached to a person.
 DEFAULT_DETECTION_FPS = 20
@@ -132,6 +135,7 @@ def face_recognition_worker(input_queue, shared_memory, face_timings, face_metri
     from core.unknown_visitors import load_unknown_visitor_settings
     from database.manager import get_engine
     from sqlalchemy.orm import sessionmaker
+    from core.ai.cache import FaceCache
     
     print("🤖 [Worker] Инициализация FaceID...")
     recognizer = FaceRecognizer()
@@ -145,8 +149,9 @@ def face_recognition_worker(input_queue, shared_memory, face_timings, face_metri
         cooldown_seconds=edge_settings.event_cooldown_seconds,
         track_unknown_observations=load_unknown_visitor_settings().enabled,
     )
-    known_names, known_embeddings = _load_known_faces(Session, edge_service, edge_settings.enabled)
-    last_cache_refresh = time.monotonic()
+    cache = FaceCache(lambda: _load_known_faces(Session, edge_service, edge_settings.enabled), EMPLOYEE_CACHE_TTL_SEC).start()
+    known_names, known_embeddings = cache.snapshot
+    face_metrics["known_vectors"] = len(known_names)
     print(f"🤖 [Worker] Загружено эмбеддингов: {len(known_names)}")
     
     print("🤖 [Worker] Разогрев нейросети...")
@@ -157,26 +162,40 @@ def face_recognition_worker(input_queue, shared_memory, face_timings, face_metri
     print("🤖 [Worker] ГОТОВ К БОЮ!")
 
     while True:
+        track_id = None
         try:
             try:
                 task = input_queue.get(timeout=1)
             except queue.Empty:
-                now = time.monotonic()
-                if now - last_cache_refresh > EMPLOYEE_CACHE_TTL_SEC:
-                    known_names, known_embeddings = _load_known_faces(Session, edge_service, edge_settings.enabled)
-                    last_cache_refresh = now
+                face_metrics["known_vectors"] = len(cache.snapshot[0])
+                face_metrics["cache_error"] = cache.error
                 continue
-            if task is None: break
+            if task is None:
+                cache.stop()
+                break
                 
-            track_id, face_img = task
+            track_id, face_img, queued_at = task
+            if time.monotonic() - queued_at > FACE_TASK_MAX_AGE_SEC or track_id not in shared_memory:
+                if track_id in shared_memory:
+                    shared_memory[track_id] = {"name": SEARCHING_STATUS}
+                face_metrics["expired"] = int(face_metrics.get("expired", 0)) + 1
+                continue
+            face_metrics["queue_wait_ms"] = round((time.monotonic() - queued_at) * 1000, 1)
 
-            now = time.monotonic()
-            if now - last_cache_refresh > EMPLOYEE_CACHE_TTL_SEC:
-                known_names, known_embeddings = _load_known_faces(Session, edge_service, edge_settings.enabled)
-                last_cache_refresh = now
+            if cache.stale:
+                shared_memory[track_id] = {"name": SEARCHING_STATUS}
+                face_metrics["cache_error"] = "Face cache expired; recognition paused"
+                continue
+
+            known_names, known_embeddings = cache.snapshot
+            face_metrics["cache_ms"] = cache.last_refresh_ms
+            face_metrics["cache_error"] = cache.error
             
             face_started = time.perf_counter()
-            embedding = recognizer.get_embedding(face_img)
+            embedding = recognizer.get_embedding(face_img, target_center=True)
+            if track_id not in shared_memory:
+                continue
+            face_metrics["known_vectors"] = len(known_names)
             face_metrics["device"] = "CUDA" if recognizer.using_cuda else "CPU"
             face_metrics["fallback_reason"] = recognizer.fallback_reason
             face_ms = (time.perf_counter() - face_started) * 1000
@@ -201,18 +220,21 @@ def face_recognition_worker(input_queue, shared_memory, face_timings, face_metri
                 if str(best_match.get("person_id") or "").startswith("edu:"):
                     threshold = max(threshold, eduschool_settings.recognition_threshold)
                 if max_sim > threshold:
-                    shared_memory[track_id] = {"name": best_match["name"], **best_match, "confidence": max_sim}
-                    event = event_store.record(
-                        camera_id=camera_id,
-                        event_type=event_type,
-                        identity=best_match,
-                        confidence=max_sim,
-                        embedding=embedding,
-                        image=face_img,
-                        subject_hint=f"known:{best_match.get('person_id') or track_id}",
-                    )
-                    if event is not None and edge_service:
-                        edge_service.queue_access_event(event)
+                    previous_id = shared_memory.get(track_id, {}).get("recorded_person_id")
+                    if previous_id != best_match.get("person_id"):
+                        event = event_store.record(
+                            camera_id=camera_id,
+                            event_type=event_type,
+                            identity=best_match,
+                            confidence=max_sim,
+                            embedding=embedding,
+                            image=face_img,
+                            subject_hint=f"known:{best_match.get('person_id') or track_id}",
+                        )
+                        if event is not None and edge_service:
+                            edge_service.queue_access_event(event)
+                    shared_memory[track_id] = {"name": best_match["name"], **best_match, "confidence": max_sim,
+                                               "recorded_person_id": best_match.get("person_id")}
                     print(f"✅ Узнал: {best_match['name']} ({max_sim:.2f})")
                 else:
                     shared_memory[track_id] = {"name": UNKNOWN_STATUS, "confidence": max_sim}
@@ -255,6 +277,9 @@ def face_recognition_worker(input_queue, shared_memory, face_timings, face_metri
                 shared_memory[track_id] = {"name": SEARCHING_STATUS}
                 
         except Exception as e:
+            if track_id is not None and track_id in shared_memory:
+                shared_memory[track_id] = {"name": SEARCHING_STATUS}
+            face_metrics["errors"] = int(face_metrics.get("errors", 0)) + 1
             print(f"❌ Ошибка Worker: {e}")
 
 class AI_Engine:
@@ -279,6 +304,8 @@ class AI_Engine:
         self.shared_memory = self.manager.dict()
         self.last_retry_at = {}
         self.track_observations = {}
+        self.track_seen_at = {}
+        self.latest_results_at = 0.0
         self.last_detection_at = 0.0
         self.last_processed_data = []
         self.results_lock = threading.Lock()
@@ -362,8 +389,11 @@ class AI_Engine:
 
         with self.results_lock:
             output = []
+            if time.monotonic() - self.latest_results_at > 1.5:
+                return output
+            current_results = self.shared_memory.copy() if self.last_processed_data else {}
             for item in self.last_processed_data:
-                result = self._result_for(item["id"], item["name"])
+                result = self._result_for(item["id"], item["name"], current_results)
                 output.append({
                     "id": item["id"], "name": result["name"],
                     "person_id": result.get("person_id"), "person_type": result.get("person_type"),
@@ -371,8 +401,8 @@ class AI_Engine:
                 })
             return output
 
-    def _result_for(self, track_id, fallback_name):
-        result = self.shared_memory.get(track_id)
+    def _result_for(self, track_id, fallback_name, snapshot=None):
+        result = (self.shared_memory if snapshot is None else snapshot).get(track_id)
         if isinstance(result, dict):
             return result
         # Compatibility with an already-running worker from an earlier version.
@@ -393,26 +423,39 @@ class AI_Engine:
             self.detection_timings.append(elapsed_ms)
             self.detection_started_at.append(time.monotonic())
             processed_data = []
+            now = time.monotonic()
+            for old_id, last_seen in list(self.track_seen_at.items()):
+                if now - last_seen > TRACK_TTL_SEC:
+                    self.track_seen_at.pop(old_id, None)
+                    self.track_observations.pop(old_id, None)
+                    self.last_retry_at.pop(old_id, None)
+                    self.shared_memory.pop(old_id, None)
 
             if results[0].boxes.id is not None:
                 boxes = results[0].boxes.xyxy.cpu().numpy().astype(int)
                 ids = results[0].boxes.id.cpu().numpy().astype(int)
 
-                candidates = sorted(zip(boxes, ids), key=lambda item: (item[0][2] - item[0][0]) * (item[0][3] - item[0][1]), reverse=True)
-                for box, track_id in candidates[:MAX_FACES_PER_FRAME]:
+                # Give waiting tracks a turn even when larger faces stay in view.
+                candidates = sorted(zip(boxes, ids), key=lambda item: (
+                    self.last_retry_at.get(self.tracker_generation * 1_000_000_000 + int(item[1]), 0),
+                    -(item[0][2] - item[0][0]) * (item[0][3] - item[0][1])))
+                submitted = 0
+                for box, track_id in candidates:
                     # A new model resets tracker IDs. Namespace them so queued
                     # FaceID results from before fallback cannot label a new person.
                     track_id = self.tracker_generation * 1_000_000_000 + int(track_id)
+                    self.track_seen_at[track_id] = now
                     self.track_observations[track_id] = self.track_observations.get(track_id, 0) + 1
                     current_result = self._result_for(track_id, None)
                     current_status = current_result.get("name")
 
-                    if current_status is not None and current_status not in [SEARCHING_STATUS, ANALYZING_STATUS, STABILIZING_STATUS, UNKNOWN_STATUS]:
+                    known = current_status is not None and current_status not in [SEARCHING_STATUS, ANALYZING_STATUS, STABILIZING_STATUS, UNKNOWN_STATUS]
+                    since_attempt = now - self.last_retry_at.get(track_id, 0)
+                    if known and since_attempt < KNOWN_RECHECK_SEC:
                         name = current_status
-                    elif current_status == ANALYZING_STATUS:
+                    elif current_status == ANALYZING_STATUS and since_attempt < FACE_TASK_MAX_AGE_SEC + 3:
                         name = ANALYZING_STATUS
                     else:
-                        now = time.monotonic()
                         retry_interval = UNKNOWN_RETRY_INTERVAL_SEC if current_status == UNKNOWN_STATUS else RETRY_INTERVAL_SEC
                         if current_status in [SEARCHING_STATUS, UNKNOWN_STATUS] and now - self.last_retry_at.get(track_id, 0) < retry_interval:
                             processed_data.append({"id": track_id, "name": current_status, "box": box})
@@ -424,7 +467,12 @@ class AI_Engine:
                             processed_data.append({"id": track_id, "name": STABILIZING_STATUS, "box": box})
                             continue
 
-                        self.shared_memory[track_id] = {"name": ANALYZING_STATUS}
+                        if submitted >= MAX_FACES_PER_FRAME:
+                            processed_data.append({"id": track_id, "name": current_status or SEARCHING_STATUS, "box": box})
+                            continue
+
+                        self.shared_memory[track_id] = {"name": ANALYZING_STATUS,
+                                                       "recorded_person_id": current_result.get("recorded_person_id")}
                         self.last_retry_at[track_id] = now
                         name = ANALYZING_STATUS
 
@@ -438,19 +486,24 @@ class AI_Engine:
                         face_img = frame[crop_y1:crop_y2, crop_x1:crop_x2]
 
                         if face_img.size > 0:
-                            if face_img.shape[0] < 112 or face_img.shape[1] < 112:
-                                face_img = cv2.resize(face_img, (150, 150), interpolation=cv2.INTER_CUBIC)
-
                             try:
-                                self.input_queue.put_nowait((track_id, face_img.copy()))
+                                # InsightFace resizes with preserved aspect ratio; square
+                                # stretching of small portrait crops distorts facial geometry.
+                                self.input_queue.put_nowait((track_id, face_img.copy(), now))
+                                submitted += 1
                             except queue.Full:
-                                self.shared_memory[track_id] = {"name": SEARCHING_STATUS}
+                                self.shared_memory[track_id] = {"name": SEARCHING_STATUS,
+                                                               "recorded_person_id": current_result.get("recorded_person_id")}
                                 self.face_metrics["dropped"] = int(self.face_metrics.get("dropped", 0)) + 1
+                        else:
+                            self.shared_memory[track_id] = {"name": SEARCHING_STATUS,
+                                                           "recorded_person_id": current_result.get("recorded_person_id")}
 
                     processed_data.append({"id": track_id, "name": name, "box": box})
 
             with self.results_lock:
                 self.last_processed_data = processed_data
+                self.latest_results_at = time.monotonic()
         except Exception as error:
             if self.using_cuda:
                 self._fallback_to_cpu(error)
@@ -473,6 +526,8 @@ class AI_Engine:
         self.tracker_generation += 1
         self.track_observations.clear()
         self.last_retry_at.clear()
+        if hasattr(self, "track_seen_at"):
+            self.track_seen_at.clear()
         self.shared_memory.clear()
         with self.results_lock:
             self.last_processed_data = []
@@ -504,6 +559,14 @@ class AI_Engine:
             "face_tasks": int(self.face_metrics.get("count", 0)),
             "face_dropped": int(self.face_metrics.get("dropped", 0)),
             "face_queue_size": queue_size,
+            "face_queue_wait_ms": self.face_metrics.get("queue_wait_ms"),
+            "face_expired": int(self.face_metrics.get("expired", 0)),
+            "face_errors": int(self.face_metrics.get("errors", 0)),
+            "known_vectors": int(self.face_metrics.get("known_vectors", 0)),
+            "cache_refresh_ms": self.face_metrics.get("cache_ms"),
+            "cache_error": self.face_metrics.get("cache_error"),
+            "detection_target_fps": round(1 / self.detection_interval_sec, 1),
+            "detection_imgsz": self.detection_imgsz,
         }
 
     def stop(self):

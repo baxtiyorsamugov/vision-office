@@ -295,6 +295,7 @@ class PlatformTests(unittest.TestCase):
         pack = Path(self.tempdir.name) / "insightface" / "models" / "buffalo_l"
         pack.mkdir(parents=True)
         (pack / "det_10g.onnx").write_bytes(b"model")
+        (pack / "w600k_r50.onnx").write_bytes(b"model")
         with patch.object(recognizer_module, "INSIGHTFACE_MODEL_ROOT", pack.parents[1]):
             recognizer_module.ensure_faceid_models_available()
 

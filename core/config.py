@@ -22,6 +22,8 @@ class CameraSettings:
     event_type: str = "entry"
     name: str = "Camera"
     location: str = ""
+    profile: str = "configured"
+    restart_token: int = 0
 
 
 @dataclass(frozen=True)
@@ -52,10 +54,17 @@ def _camera_url(value: Any, index: int) -> str:
         raise ConfigurationError(
             f"cameras[{index}].rtsp_url must be an RTSP/HTTP URL, a file URL, or 0 for a USB camera"
         )
+    if parsed.scheme in {"rtsp", "http", "https"}:
+        try:
+            if not parsed.hostname:
+                raise ValueError()
+            parsed.port
+        except ValueError as error:
+            raise ConfigurationError(f"cameras[{index}]: invalid camera host or port") from error
     return url
 
 
-def load_app_settings(path: str | Path = "config/settings.yaml") -> AppSettings:
+def load_app_settings(path: str | Path = "config/settings.yaml", *, controls_path: str | Path | None = None) -> AppSettings:
     config_path = Path(path)
     if not config_path.is_file():
         raise ConfigurationError(
@@ -89,9 +98,16 @@ def load_app_settings(path: str | Path = "config/settings.yaml") -> AppSettings:
             event_type=event_type,
             name=str(item.get("name") or camera_id),
             location=str(item.get("location") or ""),
+            profile=str(item.get("profile") or "configured"),
         ))
-    if not any(camera.is_active for camera in cameras):
-        raise ConfigurationError("At least one camera must have is_active: true")
+    from core.camera_controls import CONTROL_FILE, merge_cameras, read_controls
+    # Custom configurations (tests/import tools) are isolated from this device's controls.
+    if controls_path is not None or config_path.resolve() == Path("config/settings.yaml").resolve():
+        try:
+            overrides, _ = read_controls(Path(controls_path) if controls_path is not None else CONTROL_FILE)
+            cameras = list(merge_cameras(cameras, overrides))
+        except (OSError, ValueError, TypeError) as error:
+            raise ConfigurationError("Cannot load camera controls; check data/camera_controls.json") from error
 
     database = raw.get("database") or {}
     database_path = str(database.get("path") or "").strip()

@@ -99,6 +99,8 @@ class HealthChecker:
         runtime = read_runtime_status() or {}
         cameras = runtime.get("cameras") or ([runtime] if runtime.get("camera_id") or runtime.get("running") else [])
         configured_ids = self._configured_camera_ids()
+        if configured_ids == set():
+            return {"application": ("ok", "All cameras are paused by the operator")}
         if configured_ids is not None:
             cameras_by_id = {str(camera.get("camera_id")): camera for camera in cameras}
             cameras = [cameras_by_id[camera_id] for camera_id in configured_ids if camera_id in cameras_by_id]

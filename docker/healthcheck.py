@@ -23,21 +23,23 @@ def _http_ok(url: str) -> bool:
 
 def _worker_ok() -> bool:
     try:
-        import yaml
-
-        config = yaml.safe_load((PROJECT_ROOT / "config" / "settings.yaml").read_text(encoding="utf-8")) or {}
-        active_ids = {
-            str(camera.get("id"))
-            for camera in config.get("cameras", [])
-            if isinstance(camera, dict) and camera.get("is_active", True)
-        }
+        if str(PROJECT_ROOT) not in sys.path:
+            sys.path.insert(0, str(PROJECT_ROOT))
+        from core.config import load_app_settings
+        active_ids = {camera.id for camera in load_app_settings(
+            PROJECT_ROOT / "config/settings.yaml", controls_path=PROJECT_ROOT / "data/camera_controls.json"
+        ).cameras if camera.is_active}
+        if not active_ids:
+            path = PROJECT_ROOT / "data" / "supervisor_status.json"
+            value = json.loads(path.read_text(encoding="utf-8"))
+            return bool(value.get("running")) and time.time() - path.stat().st_mtime < 30
         statuses = {}
         for status_file in (PROJECT_ROOT / "data").glob("runtime_status_*.json"):
             if time.time() - status_file.stat().st_mtime > 60:
                 continue
             value = json.loads(status_file.read_text(encoding="utf-8"))
             statuses[str(value.get("camera_id"))] = value
-        return bool(active_ids) and all(
+        return all(
             statuses.get(camera_id, {}).get("running") and statuses.get(camera_id, {}).get("ai_ready")
             for camera_id in active_ids
         )

@@ -11,6 +11,16 @@
 
 ## Current snapshot
 
+### Recognition and camera operations audit (2026-10-08)
+
+Implementation and local verification completed for fair FaceID scheduling,
+bounded RTSP reads, background reference refresh, hot camera controls and SQL
+EduSchool/local analytics. API business logic is unchanged. Real two-camera CUDA
+add/pause/resume UAT ran in isolated temporary storage without production writes.
+Deployment acceptance remains **IN PROGRESS**: target-PC labeled identity tests,
+photo readiness and a 30-minute peak-load/reconnect test are still required.
+See [audit findings and runbook](docs/RECOGNITION_AUDIT_RUNBOOK.md).
+
 | Stage | Status | Goal | Acceptance criteria | Dependencies | Verification |
 | --- | --- | --- | --- | --- | --- |
 | EduSchool turnstile attendance | BLOCKED | Send eligible staff check-in/out to the documented EduSchool endpoint without changing cameras or existing ERP delivery. | Separate opt-in outbox/container, automatic qualification from active unique employeeNo and active FaceID photo, per-person pause, safe response-code handling, restart/offline recovery, production test entry/exit. | School confirmation that the new branch key is intended for turnstile use, physical identity/direction acceptance, and offline/restart recovery UAT. | On 2026-09-24, one exit and one entry for the same automatically qualified EduSchool employee were each accepted by the backend with code `0`, distinct backend IDs, one attempt, and `duplicate=false`; local UI and outbox agree. The exit event preceded entry by 0.74 seconds, so visit-order acceptance remains open. Independent backend attendance readback and offline/restart recovery have not been verified. Camera worker remained healthy. See `docs/EDUSCHOOL_TURNSTILE_RUNBOOK.md`. |

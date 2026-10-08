@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import multiprocessing as mp
 import os
 import signal
 import time
@@ -34,6 +33,8 @@ def headless_mode() -> bool:
 def run_camera(camera: CameraSettings, ai_settings: dict, log_level: str = "INFO") -> None:
     """Run one camera in its own process. A failure never affects sibling cameras."""
     configure_logging(log_level)
+    if hasattr(signal, "SIGTERM"):
+        signal.signal(signal.SIGTERM, _stop_on_signal)
     init_db()
     logger.info("Starting camera camera_id=%s event_type=%s", camera.id, camera.event_type)
     write_camera_runtime_status(camera.id, {"running": False, "ai_ready": False})
@@ -95,8 +96,8 @@ def run_camera(camera: CameraSettings, ai_settings: dict, log_level: str = "INFO
             preview.submit(frame)
 
             if not headless:
-                preview = cv2.resize(frame, (1280, 720), interpolation=cv2.INTER_AREA)
-                cv2.imshow(window_name, preview)
+                display_frame = cv2.resize(frame, (1280, 720), interpolation=cv2.INTER_AREA)
+                cv2.imshow(window_name, display_frame)
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     break
     except Exception:
@@ -137,30 +138,10 @@ def main() -> None:
     except ConfigurationError as error:
         raise SystemExit(f"Configuration error: {error}") from error
     init_db()
-    active_cameras = tuple(camera for camera in settings.cameras if camera.is_active)
-    if len(active_cameras) == 1:
-        from core.health import health_worker
-
-        health_stop_event = mp.Event()
-        health_process = mp.Process(
-            target=health_worker,
-            args=(health_stop_event, settings.log_level),
-            name="vision-health-checker",
-            daemon=True,
-        )
-        health_process.start()
-        try:
-            run_camera(active_cameras[0], settings.ai, settings.log_level)
-        finally:
-            health_stop_event.set()
-            health_process.join(timeout=5)
-            if health_process.is_alive():
-                health_process.terminate()
-        return
     from core.supervisor import CameraSupervisor
 
-    logger.info("Starting multi-camera supervisor camera_count=%s", len(active_cameras))
-    CameraSupervisor(active_cameras, settings.ai, settings.log_level).run()
+    logger.info("Starting camera supervisor camera_count=%s", len(settings.cameras))
+    CameraSupervisor(settings.cameras, settings.ai, settings.log_level).run()
 
 
 if __name__ == "__main__":

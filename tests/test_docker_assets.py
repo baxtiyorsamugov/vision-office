@@ -48,7 +48,7 @@ class DockerAssetTests(unittest.TestCase):
             root = Path(directory)
             (root / "config").mkdir()
             (root / "data").mkdir()
-            (root / "config/settings.yaml").write_text("cameras:\n  - id: test\n", encoding="utf-8")
+            (root / "config/settings.yaml").write_text("database:\n  path: data/test.db\ncameras:\n  - id: test\n    rtsp_url: rtsp://test\n", encoding="utf-8")
             status = root / "data/runtime_status_test.json"
             with patch.object(healthcheck, "PROJECT_ROOT", root):
                 status.write_text(json.dumps({"camera_id": "test", "running": True}))
