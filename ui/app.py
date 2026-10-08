@@ -834,9 +834,10 @@ def render_unknown_visitor_catalog():
 
 
 def render_people():
+    from core.eduschool.catalog import load_settings as load_eduschool_settings
     render_header("Сотрудники", "Основной каталог EduSchool, FaceID и события присутствия")
     edge_settings = load_edge_settings()
-    if edge_settings.configured:
+    if edge_settings.configured or load_eduschool_settings().enabled:
         session = Session()
         try:
             people = session.query(RemotePerson).filter(
@@ -901,9 +902,10 @@ def render_people():
             return
         with erp_tab:
             from ui.catalog_transfer import render_catalog_transfer
-            render_catalog_transfer(engine, edge_settings, people)
+            if edge_settings.configured:
+                render_catalog_transfer(engine, edge_settings, people)
             if not people:
-                st.info("Каталог старого ERP ещё не загружен в локальный кэш.")
+                st.info("Каталог старого ERP пуст.")
             else:
                 st.caption("Второстепенный каталог старого ERP. Локальные дополнительные фото не изменяют его карточки.")
                 search = st.text_input("Поиск в старом ERP", placeholder="Имя или тип", key="erp_people_search")

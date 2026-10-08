@@ -11,6 +11,7 @@ Vision Office is a local face-recognition and attendance platform for RTSP camer
 - [Docker deployment runbook](docs/DOCKER_RUNBOOK.md)
 - [Automatic GPU/CPU selection and recovery](docs/GPU_RUNTIME.md)
 - [Camera dashboard, recognition diagnostics and acceptance checklist](docs/RECOGNITION_AUDIT_RUNBOOK.md)
+- [Retiring the old ERP catalog without deleting EduSchool or attendance](docs/LEGACY_ERP_CLEANUP.md)
 - [Local PostgreSQL, hourly ERP sync and reference-photo runbook](docs/POSTGRESQL_RUNBOOK.md)
 - [Transfer ERP employees, photos and FaceID to another device](docs/CATALOG_TRANSFER_RUNBOOK.md)
 - [Unknown visitors catalog runbook](docs/UNKNOWN_VISITORS_RUNBOOK.md)

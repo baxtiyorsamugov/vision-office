@@ -151,11 +151,15 @@ class InferenceSchedulingTests(unittest.TestCase):
         tasks.put((3, image, time.monotonic()))
         tasks.put((3, image, time.monotonic()))
         tasks.put((4, image, time.monotonic()))
+        tasks.put((5, image, time.monotonic()))
         tasks.put(None)
-        shared = {key: {"name": "Analyzing..."} for key in (1, 3, 4)}
+        shared = {key: {"name": "Analyzing..."} for key in (1, 3, 4, 5)}
         metrics = {}
         identity = {"name": "Local Test", "person_id": "local:1", "person_type": "local_employee"}
         vector = np.ones(512, dtype=np.float32) / np.sqrt(512)
+        orthogonal = vector.copy()
+        orthogonal[:256] *= -1
+        weak_match = 0.3 * vector + np.sqrt(1 - 0.3**2) * orthogonal
         engine = create_engine("sqlite://")
         with patch("core.ai.recognizer.FaceRecognizer") as recognizer, \
              patch("core.edge.config.load_edge_settings", return_value=EdgeSettings()), \
@@ -166,9 +170,10 @@ class InferenceSchedulingTests(unittest.TestCase):
              patch("core.ai.engine._load_known_faces", return_value=([identity], np.array([vector]))):
             recognizer.return_value.using_cuda = False
             recognizer.return_value.fallback_reason = None
-            recognizer.return_value.get_embedding.side_effect = [vector, vector, vector, RuntimeError("test failure")]
+            recognizer.return_value.get_embedding.side_effect = [vector, vector, vector, RuntimeError("test failure"), weak_match]
             face_recognition_worker(tasks, shared, [], metrics)
-        self.assertEqual(events.return_value.record.call_count, 1)
+        self.assertEqual(events.return_value.record.call_count, 2)
+        self.assertIsNone(events.return_value.record.call_args_list[1].kwargs["identity"])
         self.assertEqual(metrics["expired"], 2)
         self.assertEqual(metrics["errors"], 1)
         self.assertEqual(shared[4]["name"], SEARCHING_STATUS)

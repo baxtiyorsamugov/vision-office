@@ -212,7 +212,7 @@ def face_recognition_worker(input_queue, shared_memory, face_timings, face_metri
                     continue
 
                 sims = known_embeddings @ (embedding / norm)
-                threshold = edge_settings.recognition_threshold if edge_service else 0.25
+                threshold = edge_settings.recognition_threshold
                 best_idx, max_sim = _choose_best_match(
                     known_names, sims, threshold, eduschool_settings.recognition_threshold
                 )
