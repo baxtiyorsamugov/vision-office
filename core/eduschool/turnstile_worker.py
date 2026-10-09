@@ -1,4 +1,4 @@
-"""Isolated opt-in sender for EduSchool employee attendance."""
+"""Isolated opt-in sender for EduSchool staff and student attendance."""
 
 from __future__ import annotations
 

@@ -79,6 +79,8 @@ class EduSchoolCatalogPerson(Base):
     full_name = Column(String(255), nullable=False)
     image_url = Column(String(1024), nullable=True)
     employee_no = Column(String(64), nullable=True)
+    student_no = Column(String(64), nullable=True)
+    source_branch_id = Column(String(24), nullable=True)
     attendance_approved = Column(Boolean, nullable=False, default=False)
     attendance_approved_at = Column(DateTime(timezone=True), nullable=True)
     attendance_blocked = Column(Boolean, nullable=False, default=False)
@@ -122,6 +124,8 @@ class EduSchoolTurnstileState(Base):
     id = Column(Integer, primary_key=True, default=1)
     enabled = Column(Boolean, nullable=False, default=False)
     activated_at = Column(DateTime(timezone=True), nullable=True)
+    students_enabled = Column(Boolean, nullable=False, default=False)
+    students_activated_at = Column(DateTime(timezone=True), nullable=True)
     last_error = Column(Text, nullable=True)
 
 

@@ -11,6 +11,19 @@
 
 ## Current snapshot
 
+### Student attendance contract update (2026-10-09)
+
+Implemented catalog studentNo/branch persistence, additive migrations, separate
+student activation boundary, qualification, single-event payloads with isCamera,
+and student profile/journal support. Existing staff behavior is retained.
+Student sending defaults off; historical events are not replayed. Bulk is out of
+scope. Live acceptance is **BLOCKED** pending studentNo availability: a read-only
+10-student API sample contained no studentNo field. No real attendance was posted.
+See [student rollout](docs/EDUSCHOOL_STUDENT_ATTENDANCE.md).
+Docker suite: 199 tests, 177 passed, 22 environment skips. Student PostgreSQL
+migration/delivery tests and UI checks passed; CPU/CUDA image builds succeeded.
+Production rollout and real student API acceptance remain pending.
+
 ### Additional camera onboarding (2026-10-09)
 
 Dashboard camera creation now saves a unique EduSchool deviceId with the local

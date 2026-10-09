@@ -44,8 +44,9 @@ entry becomes `check_in`, exit becomes `check_out`, and `deviceId` identifies th
 camera. Only routes are reloaded by the running sender on its normal poll cycle.
 No key, endpoint, branch, automatic qualification, retry rule or activation time
 is changed. A configured route does not prove the sender is running or delivery
-succeeded. Existing eligibility remains limited to qualified EduSchool staff;
-this feature does not enable student, local-person or unknown-person delivery.
+succeeded. Qualified EduSchool staff remain eligible. Student delivery requires
+the separate [student rollout](EDUSCHOOL_STUDENT_ATTENDANCE.md) and opt-in flag;
+adding a camera does not enable it. Local people and unknown faces remain excluded.
 
 Do not label a corridor or outdoor observation as entry/exit merely to send it.
 Those locations need an agreed backend contract before enabling delivery.

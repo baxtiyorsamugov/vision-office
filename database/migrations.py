@@ -9,6 +9,15 @@ from database.models import Base
 
 MIGRATIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
+        "20261009_eduschool_student_attendance",
+        (
+            "ALTER TABLE eduschool_catalog_people ADD COLUMN student_no VARCHAR(64)",
+            "ALTER TABLE eduschool_catalog_people ADD COLUMN source_branch_id VARCHAR(24)",
+            "ALTER TABLE eduschool_turnstile_state ADD COLUMN students_enabled BOOLEAN NOT NULL DEFAULT FALSE",
+            "ALTER TABLE eduschool_turnstile_state ADD COLUMN students_activated_at TIMESTAMP WITH TIME ZONE",
+        ),
+    ),
+    (
         "20260903_edge_event_columns",
         (
             "ALTER TABLE remote_persons ADD COLUMN photo_url VARCHAR(1024)",

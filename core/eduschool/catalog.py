@@ -133,6 +133,8 @@ class EduSchoolCatalogSync:
             raise ValueError(f"EduSchool {person_type}: record without a name")
         image_url = str(row.get("imageUrl") or "").strip()
         employee_no = str(row.get("employeeNo") or "").strip() if person_type == "employee" else ""
+        student_value = row.get("studentNo")
+        student_no = str(student_value).strip() if person_type == "student" and student_value is not None else ""
         return {
             "id": f"{person_type}:{row['_id']}",
             "person_type": person_type,
@@ -140,6 +142,8 @@ class EduSchoolCatalogSync:
             "full_name": name[:255],
             "image_url": image_url[:1024] if image_url else None,
             "employee_no": employee_no if 1 <= len(employee_no) <= 64 else None,
+            "student_no": student_no if 1 <= len(student_no) <= 64 else None,
+            "source_branch_id": self.settings.branch_id,
             "source_status": status,
             "active": active,
         }
@@ -189,7 +193,10 @@ class EduSchoolCatalogSync:
                         person.source_photo_retry_at = None
                         person.attendance_approved = False
                         person.attendance_approved_at = None
-                    if person.id in existing and person.employee_no != row["employee_no"]:
+                    if person.id in existing and (
+                        person.employee_no != row["employee_no"] or person.student_no != row["student_no"]
+                        or (person.person_type == "student" and person.source_branch_id != row["source_branch_id"])
+                    ):
                         person.attendance_approved = False
                         person.attendance_approved_at = None
                     if not row["active"]:

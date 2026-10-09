@@ -6,7 +6,10 @@ not create attendance. Staff now qualify automatically only when the directory
 record is active, `employeeNo` is unique, and an active FaceID photo exists.
 The integration is separate from the hourly EduSchool
 student/staff catalog, the existing learning-center ERP outbox, and camera workers.
-No student, unknown visitor, local employee or legacy ERP event is eligible.
+Unknown visitors, local employees and legacy ERP events remain ineligible.
+The 2026-10-09 contract adds separately enabled student delivery using `studentNo`;
+see [the student rollout guide](EDUSCHOOL_STUDENT_ATTENDANCE.md). Students remain
+off unless `eduschool_turnstile.students_enabled` is explicitly true.
 
 ## Prerequisites
 
@@ -45,7 +48,7 @@ docker compose logs --tail 100 eduschool-turnstile
 
 `POST https://backend.eduschool.uz/external-api/turnstile/attendance` sends
 `employeeNo`, `check_in`/`check_out`, original UTC `eventTime`,
-`method=face_recognition`, and stable `deviceId`. The `apikey` and `branch`
+`method=face_recognition`, `isCamera: true`, and stable `deviceId`. The `apikey` and `branch`
 headers are applied by the isolated sender. It has a 0.25 CPU / 256 MB budget
 and never opens RTSP. The existing camera and ERP services are not restarted by
 the command above.

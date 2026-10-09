@@ -1077,6 +1077,7 @@ def render_eduschool_list(session):
         query = query.filter(or_(
             EduSchoolCatalogPerson.full_name.ilike(pattern),
             EduSchoolCatalogPerson.employee_no.ilike(pattern),
+            EduSchoolCatalogPerson.student_no.ilike(pattern),
             EduSchoolCatalogPerson.external_id.ilike(pattern),
         ))
     if branch_filter != "Все":
@@ -1155,9 +1156,7 @@ def render_eduschool_profile(session, person, local_photos, settings, recognitio
         "FaceID готов" if person.active and local_photos else "Нет FaceID",
         "В филиале" if person.active else "Вне филиала",
     )
-    sections = ["Обзор", "События", "Фото"]
-    if person.person_type == "employee":
-        sections.append("Отправка")
+    sections = ["Обзор", "События", "Фото", "Отправка"]
     section = st.segmented_control(
         "Карточка", sections, default="Обзор", key=f"eduschool_profile_section_{person.person_type}",
         width="stretch", label_visibility="collapsed",
@@ -1168,7 +1167,7 @@ def render_eduschool_profile(session, person, local_photos, settings, recognitio
             ("Состояние", {"active": "Активен", "new": "Новый", "archived": "Архив"}.get(
                 person.source_status, person.source_status)),
             ("ID EduSchool", person.external_id),
-            ("Табельный номер", person.employee_no or "Не указан") if person.person_type == "employee" else ("Тип", "Студент"),
+            ("Табельный номер", person.employee_no or "Не указан") if person.person_type == "employee" else ("studentNo", person.student_no or "Не указан"),
             ("Фото FaceID", str(len(local_photos))),
             ("Последний проход", format_local(last_event.created_at) if last_event else "Нет событий"),
             ("Камера", last_event.camera_id if last_event else "—"),
@@ -1179,13 +1178,12 @@ def render_eduschool_profile(session, person, local_photos, settings, recognitio
                 for label, value in facts
             ) + "</div>", unsafe_allow_html=True,
         )
-        if person.person_type == "employee":
-            turnstile_state = session.get(EduSchoolTurnstileState, 1)
-            delivery = "Приостановлено" if person.attendance_blocked else (
-                "Готово к отправке" if person.attendance_approved and turnstile_state and turnstile_state.enabled
-                else "Не готово к отправке"
-            )
-            st.caption(f"Посещения EduSchool: {delivery}")
+        turnstile_state = session.get(EduSchoolTurnstileState, 1)
+        delivery_on = bool(turnstile_state and turnstile_state.enabled and (
+            person.person_type == "employee" or turnstile_state.students_enabled))
+        delivery = "Приостановлено" if person.attendance_blocked else (
+            "Готово к отправке" if person.attendance_approved and delivery_on else "Не готово к отправке")
+        st.caption(f"Посещения EduSchool: {delivery}")
         if person.source_photo_status in ("invalid", "failed"):
             st.warning(f"Фото API: {person.source_photo_error or 'не удалось обработать'}")
     elif section == "События":
@@ -1223,14 +1221,22 @@ def render_eduschool_profile(session, person, local_photos, settings, recognitio
         from core.eduschool.turnstile import reconcile_ambiguous, set_person_hold
 
         turnstile_state = session.get(EduSchoolTurnstileState, 1)
-        delivery_on = bool(turnstile_state and turnstile_state.enabled)
+        delivery_on = bool(turnstile_state and turnstile_state.enabled and (
+            person.person_type == "employee" or turnstile_state.students_enabled))
+        if person.person_type == "student":
+            if not delivery_on:
+                st.info("Отправка учеников выключена. Требуется включить students_enabled в настройках отправщика.")
+            st.warning("События учеников могут вызывать уведомления родителям и платные SMS на стороне EduSchool.")
+            st.caption(f"studentNo: {person.student_no or 'Не указан'} · филиал: {person.source_branch_id or 'Требуется синхронизация'}")
+            if not person.student_no:
+                st.warning("В каталоге API не получен studentNo. Запросите номер у EduSchool и обновите каталог.")
         attendance_status = (
             "Приостановлено" if person.attendance_blocked else
             "Готов автоматически" if person.attendance_approved else
             "Ожидает номер или фото FaceID"
         )
         st.caption(f"Отправка: {'включена' if delivery_on else 'выключена'} · {attendance_status}")
-        blocked = st.toggle("Приостановить отправку для этого сотрудника", value=person.attendance_blocked,
+        blocked = st.toggle("Приостановить отправку для этого человека", value=person.attendance_blocked,
                             key=f"eduschool_hold_{person.id}")
         if blocked != person.attendance_blocked:
             set_person_hold(person.id, blocked, engine)
@@ -1391,6 +1397,7 @@ def render_delivery_log():
         status_label = st.selectbox("Результат", ["Все", "Отправлено", "Повтор", "Ошибка", "Неясный исход"])
     with search_col:
         search = st.text_input("Поиск", placeholder="ФИО, табельный номер или ID события").strip()
+    category = st.selectbox("Категория", ["Все", "Сотрудники", "Ученики"])
 
     status_values = {
         "Отправлено": ("sent",), "Повтор": ("retry",),
@@ -1409,6 +1416,9 @@ def render_delivery_log():
         )
         if period in days:
             base = base.filter(EduSchoolDeliveryAttempt.started_at >= datetime.now(timezone.utc) - timedelta(days=days[period]))
+        if category != "Все":
+            base = base.filter(RecognitionEvent.person_type == (
+                "eduschool_student" if category == "Ученики" else "eduschool_employee"))
         totals = dict(base.with_entities(EduSchoolDeliveryAttempt.status, func.count(EduSchoolDeliveryAttempt.id))
                       .group_by(EduSchoolDeliveryAttempt.status).all())
         queued = session.query(EduSchoolTurnstileOutbox).filter(
@@ -1428,6 +1438,7 @@ def render_delivery_log():
             base = base.filter(or_(
                 func.lower(EduSchoolCatalogPerson.full_name).like(needle),
                 func.lower(EduSchoolCatalogPerson.employee_no).like(needle),
+                func.lower(EduSchoolCatalogPerson.student_no).like(needle),
                 func.lower(EduSchoolDeliveryAttempt.event_id).like(needle),
             ))
         total = base.count()
@@ -1438,15 +1449,16 @@ def render_delivery_log():
         page = st.selectbox("Страница", range(1, pages + 1), format_func=lambda value: f"{value} / {pages}") if pages > 1 else 1
         rows = base.with_entities(
             EduSchoolDeliveryAttempt, RecognitionEvent.person_name,
-            EduSchoolCatalogPerson.full_name, EduSchoolCatalogPerson.employee_no,
-            EduSchoolTurnstileOutbox.status, RecognitionEvent.event_type,
+            EduSchoolCatalogPerson.full_name, func.coalesce(EduSchoolCatalogPerson.student_no, EduSchoolCatalogPerson.employee_no),
+            EduSchoolTurnstileOutbox.status, RecognitionEvent.event_type, RecognitionEvent.person_type,
         ).order_by(EduSchoolDeliveryAttempt.started_at.desc(), EduSchoolDeliveryAttempt.id.desc()
                    ).offset((page - 1) * 25).limit(25).all()
 
         st.caption(f"Найдено: {total}")
         st.dataframe(pd.DataFrame([{
             "Время": format_local(attempt.started_at, "%d.%m.%Y %H:%M:%S"),
-            "Сотрудник": full_name or person_name or "—",
+            "Человек": full_name or person_name or "—",
+            "Категория": "Ученик" if person_type == "eduschool_student" else "Сотрудник",
             "Номер": employee_no or "—",
             "Направление": "Вход" if event_type == "entry" else "Выход",
             "Адрес": attempt.endpoint,
@@ -1455,7 +1467,7 @@ def render_delivery_log():
             "Результат": status_names.get(attempt.status, attempt.status),
             "Попытка": attempt.attempt_number,
             "Причина": attempt.error or "",
-        } for attempt, person_name, full_name, employee_no, _, event_type in rows]),
+        } for attempt, person_name, full_name, employee_no, _, event_type, person_type in rows]),
             use_container_width=True, hide_index=True)
 
         with st.expander("Детали попытки"):
@@ -1463,10 +1475,10 @@ def render_delivery_log():
                 "Запись", rows,
                 format_func=lambda row: (
                     f"{format_local(row[0].started_at, '%d.%m %H:%M:%S')} · "
-                    f"{row[2] or row[1] or 'Сотрудник'} · {status_names.get(row[0].status, row[0].status)}"
+                    f"{row[2] or row[1] or 'Человек'} · {status_names.get(row[0].status, row[0].status)}"
                 ),
             )
-            attempt, _, _, _, queue_status, _ = selected
+            attempt, _, _, _, queue_status, _, _ = selected
             st.code(attempt.endpoint, language=None)
             st.write(f"Событие: `{attempt.event_id}` · попытка №{attempt.attempt_number}")
             st.write(f"Начало: {format_local(attempt.started_at)} · завершение: "

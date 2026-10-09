@@ -131,6 +131,28 @@ class EduSchoolCatalogTests(unittest.TestCase):
         with self.service.Session() as session:
             self.assertFalse(session.get(EduSchoolCatalogPerson, person_id).attendance_approved)
 
+    def test_student_number_and_branch_are_synced_without_id_fallback(self):
+        self._fake_pages({"student": [dict(self.student, studentNo=" S-17 ")], "employee": [self.employee]})
+        self.service.sync_once()
+        person_id = f"student:{self.student['_id']}"
+        with self.service.Session.begin() as session:
+            person = session.get(EduSchoolCatalogPerson, person_id)
+            self.assertEqual(person.student_no, "S-17")
+            self.assertEqual(person.source_branch_id, BRANCH)
+            self.assertIsNone(person.employee_no)
+            person.attendance_approved = True
+            person.attendance_approved_at = datetime.now(timezone.utc)
+        self._fake_pages({"student": [dict(self.student, studentNo="S-18")], "employee": [self.employee]})
+        self.service.sync_once()
+        with self.service.Session() as session:
+            person = session.get(EduSchoolCatalogPerson, person_id)
+            self.assertEqual(person.student_no, "S-18")
+            self.assertFalse(person.attendance_approved)
+        self._fake_pages({"student": [self.student], "employee": [self.employee]})
+        self.service.sync_once()
+        with self.service.Session() as session:
+            self.assertIsNone(session.get(EduSchoolCatalogPerson, person_id).student_no)
+
 
 if __name__ == "__main__":
     unittest.main()

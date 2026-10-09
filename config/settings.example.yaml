@@ -71,6 +71,8 @@ eduschool_catalog:
 # in ignored .env; read-only catalog credentials cannot authorize this endpoint.
 eduschool_turnstile:
   enabled: false
+  # Student events may notify parents and incur SMS charges. Opt in explicitly.
+  students_enabled: false
   base_url: "https://backend.eduschool.uz"
   branch_id: "REPLACE_WITH_CAMERA_BRANCH_ID"
   device_ids:

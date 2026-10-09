@@ -19,6 +19,7 @@ Vision Office is a local face-recognition and attendance platform for RTSP camer
 - [UI design system](docs/UI_DESIGN_SYSTEM.md)
 - [EduSchool directory, automatic source-photo FaceID and local photos](docs/EDUSCHOOL_CATALOG_RUNBOOK.md)
 - [Opt-in EduSchool staff turnstile attendance](docs/EDUSCHOOL_TURNSTILE_RUNBOOK.md)
+- [Student attendance, studentNo and notification-safe rollout](docs/EDUSCHOOL_STUDENT_ATTENDANCE.md)
 - [Local PDF and Excel attendance reports](docs/ATTENDANCE_REPORTS_RUNBOOK.md)
 
 The roadmap is updated with each verified stage; do not treat a task as complete until its documented checks pass.
@@ -28,6 +29,9 @@ the example configuration. The device-specific sender is enabled only after a
 non-recording API authorization probe. Active staff with a unique employee
 number and enrolled FaceID photo qualify automatically; an operator can pause
 any profile. See the runbook before a live attendance test.
+Student delivery is separately opt-in under the 2026-10-09 contract. It requires
+`studentNo`, verified branch membership and FaceID; parents may receive push/SMS.
+See the student rollout guide before enabling `students_enabled`.
 
 ## Two-camera setup
 

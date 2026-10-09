@@ -1,4 +1,4 @@
-"""Device-local, opt-in delivery of verified staff events to EduSchool."""
+"""Device-local, opt-in delivery of qualified staff/student events to EduSchool."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 import yaml
-from sqlalchemy import or_
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import sessionmaker
 
 from database.manager import get_engine
@@ -48,6 +48,21 @@ def _has_usable_embedding(value) -> bool:
         return False
 
 
+def attendance_number(person: EduSchoolCatalogPerson) -> str | None:
+    return person.student_no if person.person_type == "student" else person.employee_no
+
+
+def number_field(person: EduSchoolCatalogPerson) -> str:
+    return "studentNo" if person.person_type == "student" else "employeeNo"
+
+
+def event_person_id(event: RecognitionEvent) -> str:
+    kind, prefix = {"eduschool_employee": ("employee", "edu:e:"),
+                    "eduschool_student": ("student", "edu:s:")}.get(event.person_type, ("", ""))
+    value = event.person_id or ""
+    return f"{kind}:{value[len(prefix):]}" if kind and value.startswith(prefix) else ""
+
+
 @dataclass(frozen=True)
 class TurnstileSettings:
     enabled: bool = False
@@ -57,6 +72,7 @@ class TurnstileSettings:
     device_ids: dict[str, str] = field(default_factory=dict)
     poll_interval_seconds: int = 5
     request_timeout_seconds: int = 10
+    students_enabled: bool = False
 
     def validation_error(self) -> str | None:
         if not self.enabled:
@@ -90,6 +106,7 @@ def load_settings(path: str | Path = "config/settings.yaml", *, controls_path: s
         devices = merge_device_ids(devices, overrides)
     return TurnstileSettings(
         enabled=bool(values.get("enabled", False)),
+        students_enabled=values.get("students_enabled", False) is True,
         base_url=str(values.get("base_url", "https://backend.eduschool.uz")).rstrip("/"),
         branch_id=str(values.get("branch_id") or "").strip(),
         api_key=os.getenv("EDUSCHOOL_TURNSTILE_API_KEY", "").strip(),
@@ -188,6 +205,7 @@ class EduSchoolTurnstileService:
                     synchronize_session=False,
                 )
                 state.enabled = False
+                state.students_enabled = False
                 state.last_error = error
                 return False
             if not state.enabled:
@@ -197,37 +215,65 @@ class EduSchoolTurnstileService:
                 synchronize_session=False,
             )
             state.enabled = True
+            if self.settings.students_enabled and not state.students_enabled:
+                state.students_activated_at = datetime.now(timezone.utc)
+            state.students_enabled = self.settings.students_enabled
+            if not state.students_enabled:
+                session.query(EduSchoolTurnstileOutbox).filter(
+                    EduSchoolTurnstileOutbox.person_id.startswith("student:"),
+                    EduSchoolTurnstileOutbox.status.in_(("pending", "retry")),
+                ).update({"status": "blocked", "last_error": "Student delivery disabled", "next_attempt_at": None}, synchronize_session=False)
             state.last_error = None
         return True
 
     def _eligible(self, session, event: RecognitionEvent, person: EduSchoolCatalogPerson | None) -> str | None:
-        if person is None or not person.active or person.person_type != "employee":
-            return "Person is not an active EduSchool employee"
+        if person is None or not person.active or person.person_type not in ("employee", "student"):
+            return "Person is not an active EduSchool employee or student"
+        if event_person_id(event) != person.id:
+            return "Event identity does not match the catalog profile"
+        if person.person_type == "student":
+            state = session.get(EduSchoolTurnstileState, 1)
+            if not self.settings.students_enabled or not state or not state.students_enabled:
+                return "Student delivery disabled"
+            if person.source_branch_id != self.settings.branch_id:
+                return "Student does not belong to the camera branch"
+            if not state.students_activated_at or as_utc(event.created_at) < as_utc(state.students_activated_at):
+                return "Event predates student delivery activation"
         if person.attendance_blocked:
             return "Attendance delivery is paused for this person"
-        if not person.employee_no or not person.attendance_approved or person.attendance_approved_at is None:
-            return "Employee number or automatic qualification is missing"
+        number = attendance_number(person)
+        if (not isinstance(number, str) or not 1 <= len(number) <= 64 or number != number.strip()
+                or not person.attendance_approved or person.attendance_approved_at is None):
+            return "Attendance number or automatic qualification is missing"
         if as_utc(event.created_at) < as_utc(person.attendance_approved_at):
             return "Event predates automatic qualification"
-        if session.query(EduSchoolCatalogPerson.id).filter(
-            EduSchoolCatalogPerson.employee_no == person.employee_no,
+        column = EduSchoolCatalogPerson.student_no if person.person_type == "student" else EduSchoolCatalogPerson.employee_no
+        duplicates = session.query(EduSchoolCatalogPerson.id).filter(
+            column == number,
+            EduSchoolCatalogPerson.person_type == person.person_type,
             EduSchoolCatalogPerson.id != person.id,
             EduSchoolCatalogPerson.active.is_(True),
-        ).first():
-            return "Employee number belongs to multiple active profiles"
+        )
+        if person.person_type == "student":
+            duplicates = duplicates.filter(EduSchoolCatalogPerson.source_branch_id == self.settings.branch_id)
+        if duplicates.first():
+            return "Attendance number belongs to multiple active profiles"
         photos = session.query(EduSchoolReferencePhoto.embedding).filter_by(person_id=person.id, active=True).all()
         if not any(_has_usable_embedding(row[0]) for row in photos):
             return "Person has no active FaceID photo"
         return None
 
     def refresh_auto_approvals(self) -> int:
-        """Qualify only active staff with a unique number and an enrolled face."""
+        """Qualify active people, respecting student opt-in and branch scope."""
         with self.Session.begin() as session:
             state = session.get(EduSchoolTurnstileState, 1)
             if state is None or not state.enabled:
                 return 0
-            people = session.query(EduSchoolCatalogPerson).filter_by(person_type="employee").all()
-            numbers = Counter(person.employee_no for person in people if person.active and person.employee_no)
+            people = session.query(EduSchoolCatalogPerson).filter(
+                EduSchoolCatalogPerson.person_type.in_(("employee", "student"))).all()
+            def number_key(person):
+                return (person.person_type, person.source_branch_id if person.person_type == "student" else "", attendance_number(person))
+            numbers = Counter(number_key(person) for person in people if person.active and attendance_number(person))
             employee_ids = [person.id for person in people]
             photos = session.query(EduSchoolReferencePhoto.person_id, EduSchoolReferencePhoto.embedding).filter(
                 EduSchoolReferencePhoto.active.is_(True),
@@ -237,9 +283,15 @@ class EduSchoolTurnstileService:
             now = datetime.now(timezone.utc)
             changed = 0
             for person in people:
+                number = attendance_number(person)
+                kind_enabled = person.person_type == "employee" or (
+                    self.settings.students_enabled and state.students_enabled
+                    and person.source_branch_id == self.settings.branch_id
+                )
                 qualified = bool(
-                    person.active and not person.attendance_blocked and person.employee_no
-                    and numbers[person.employee_no] == 1 and person.id in photo_ids
+                    kind_enabled and person.active and not person.attendance_blocked
+                    and isinstance(number, str) and 1 <= len(number) <= 64 and number == number.strip()
+                    and numbers[number_key(person)] == 1 and person.id in photo_ids
                 )
                 if qualified and (not person.attendance_approved or person.attendance_approved_at is None):
                     person.attendance_approved = True
@@ -264,26 +316,31 @@ class EduSchoolTurnstileService:
             state = session.get(EduSchoolTurnstileState, 1)
             if state is None or not state.enabled or state.activated_at is None:
                 return 0
+            kinds = [RecognitionEvent.person_type == "eduschool_employee"]
+            if self.settings.students_enabled and state.students_enabled and state.students_activated_at:
+                kinds.append(and_(RecognitionEvent.person_type == "eduschool_student",
+                                  RecognitionEvent.created_at >= state.students_activated_at))
             events = session.query(RecognitionEvent).outerjoin(
                 EduSchoolTurnstileOutbox, EduSchoolTurnstileOutbox.event_id == RecognitionEvent.id
             ).filter(
-                RecognitionEvent.person_type == "eduschool_employee",
+                or_(*kinds),
                 RecognitionEvent.event_type.in_(("entry", "exit")),
                 RecognitionEvent.created_at >= state.activated_at,
                 EduSchoolTurnstileOutbox.event_id.is_(None),
             ).order_by(RecognitionEvent.created_at, RecognitionEvent.id).limit(limit).all()
             for event in events:
-                person_id = f"employee:{event.person_id.removeprefix('edu:e:')}" if (event.person_id or "").startswith("edu:e:") else ""
+                person_id = event_person_id(event)
                 person = session.get(EduSchoolCatalogPerson, person_id) if person_id else None
                 reason = self._eligible(session, event, person)
                 device_id = self.settings.device_ids.get(event.camera_id)
                 if not device_id:
                     reason = reason or "Camera deviceId is not configured"
                 payload = None if reason else {
-                    "employeeNo": person.employee_no,
+                    number_field(person): attendance_number(person),
                     "eventType": "check_in" if event.event_type == "entry" else "check_out",
                     "eventTime": as_utc(event.created_at).isoformat().replace("+00:00", "Z"),
                     "method": "face_recognition",
+                    "isCamera": True,
                     "deviceId": device_id,
                 }
                 session.add(EduSchoolTurnstileOutbox(
@@ -311,8 +368,9 @@ class EduSchoolTurnstileService:
             event = session.get(RecognitionEvent, event_id)
             person = session.get(EduSchoolCatalogPerson, item.person_id)
             reason = self._eligible(session, event, person) if event else "Recognition event is missing"
-            if not reason and (item.payload or {}).get("employeeNo") != person.employee_no:
-                reason = "Employee number changed after enqueue"
+            if not reason and ((item.payload or {}).get(number_field(person)) != attendance_number(person)
+                               or ("employeeNo" if person.person_type == "student" else "studentNo") in (item.payload or {})):
+                reason = "Attendance number changed after enqueue or payload identity is invalid"
             if not reason and (item.payload or {}).get("deviceId") != self.settings.device_ids.get(event.camera_id):
                 reason = "Camera deviceId changed after enqueue"
             if reason:
@@ -321,6 +379,8 @@ class EduSchoolTurnstileService:
                 item.next_attempt_at = None
                 return False
             payload = dict(item.payload)
+            payload["isCamera"] = True
+            item.payload = payload
             claimed = session.query(EduSchoolTurnstileOutbox).filter(
                 EduSchoolTurnstileOutbox.event_id == event_id,
                 EduSchoolTurnstileOutbox.status.in_(("pending", "retry")),
@@ -370,8 +430,8 @@ def set_person_hold(person_id: str, blocked: bool, engine=None) -> None:
     service = EduSchoolTurnstileService(TurnstileSettings(), engine)
     with service.Session.begin() as session:
         person = session.get(EduSchoolCatalogPerson, person_id)
-        if person is None or person.person_type != "employee":
-            raise ValueError("Выберите сотрудника EduSchool.")
+        if person is None or person.person_type not in ("employee", "student"):
+            raise ValueError("Выберите сотрудника или ученика EduSchool.")
         person.attendance_blocked = blocked
         if blocked:
             person.attendance_approved = False
