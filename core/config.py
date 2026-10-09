@@ -24,6 +24,7 @@ class CameraSettings:
     location: str = ""
     profile: str = "configured"
     restart_token: int = 0
+    device_id: str = ""
 
 
 @dataclass(frozen=True)

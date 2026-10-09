@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 import socket
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
@@ -113,6 +114,23 @@ class EduSchoolTurnstileTests(unittest.TestCase):
         set_person_hold(PERSON_ID, False, self.engine)
         self.assertEqual(self.service.refresh_auto_approvals(), 1)
         self.assertEqual(self.outbox(current).status, "blocked")
+
+    def test_additional_entry_exit_cameras_use_existing_delivery_contract(self):
+        self.service.prepare_activation()
+        self.service.refresh_auto_approvals()
+        self.service.settings = replace(self.settings, device_ids={
+            **self.settings.device_ids, "entry_02": "ENTRY-02", "exit_02": "EXIT-02"})
+        entry = self.event(1, camera_id="entry_02")
+        exit_event = self.event(2, camera_id="exit_02", event_type="exit")
+        self.assertEqual(self.service.queue_new_events(), 2)
+        with patch("core.eduschool.turnstile.send_attendance", return_value=DeliveryResult("sent", http_status=200)) as sender:
+            self.assertEqual(self.service.deliver_due(), 2)
+        payloads = [call.args[1] for call in sender.call_args_list]
+        self.assertEqual([(p["deviceId"], p["eventType"]) for p in payloads],
+                         [("ENTRY-02", "check_in"), ("EXIT-02", "check_out")])
+        self.assertTrue(all(p["employeeNo"] == "A-17" for p in payloads))
+        self.assertEqual(self.outbox(entry).status, "sent")
+        self.assertEqual(self.outbox(exit_event).status, "sent")
 
     def test_duplicate_number_and_missing_photo_revoke_automatic_qualification(self):
         self.service.prepare_activation()

@@ -60,9 +60,10 @@ faces but cost compute. Lower FPS does not repair missing or unsuitable portrait
 The supervisor reads changes approximately every two seconds; stopping a worker
 and warming up models take longer. Controls do not start Docker itself. If
 `vision-worker` is stopped, the UI reports this and saves changes for its next run.
-Camera IDs are immutable in the edit form. A new ID requires separate verification
-of the existing EduSchool `deviceId` mapping; adding a camera does not authorize
-new API mappings or change sending policy.
+Camera IDs and saved EduSchool deviceIds are immutable in the edit form. New
+cameras can now save their unique deviceId locally alongside the stream settings;
+the sender reloads those routes without changing sending policy. See
+[camera onboarding](CAMERA_ONBOARDING.md). No endpoint or credential is edited.
 
 Overrides contain RTSP credentials. Keep `data/camera_controls.json` local, with
 restricted filesystem access; never commit it or send it in a support archive.

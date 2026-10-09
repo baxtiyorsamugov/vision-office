@@ -11,6 +11,18 @@
 
 ## Current snapshot
 
+### Additional camera onboarding (2026-10-09)
+
+Dashboard camera creation now saves a unique EduSchool deviceId with the local
+camera override. Sender route refresh does not alter HTTP payloads, credentials,
+eligibility, activation or retry rules. Existing routes are immutable; duplicates
+are rejected. Saves refresh editor state and preserve hidden RTSP addresses.
+Automated onboarding, sender and camera-operation checks passed. Additional live
+RTSP streams and target-PC capacity/API acceptance remain **IN PROGRESS**.
+Docker full suite: 179 tests, 157 passed and 22 environment skips. Desktop/mobile
+form screenshots and CPU/CUDA image builds verified; production cameras untouched.
+See [camera onboarding](docs/CAMERA_ONBOARDING.md).
+
 ### Recognition and camera operations audit (2026-10-08)
 
 Implementation and local verification completed for fair FaceID scheduling,

@@ -22,8 +22,10 @@ No student, unknown visitor, local employee or legacy ERP event is eligible.
    automatic delivery eligibility. Automatic matching is not human identity
    verification: review suspicious photos in **Employees > EduSchool** and use
    the per-person pause switch when necessary.
-3. Give each active camera a distinct stable `deviceId` and verify the entry/
-   exit direction in `config/settings.yaml`. Keep the Edge clock synchronized.
+3. Give each active camera a distinct stable `deviceId` and verify its entry/
+   exit direction in Cameras (or the base `config/settings.yaml`). Keep the Edge
+   clock synchronized. New dashboard routes are documented in
+   [camera onboarding](CAMERA_ONBOARDING.md).
 4. Create a backup of the PostgreSQL volume before a production rollout.
 
 Put the dedicated key in the ignored `.env` file:

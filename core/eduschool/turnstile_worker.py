@@ -5,9 +5,16 @@ from __future__ import annotations
 import logging
 import signal
 import threading
+from dataclasses import replace
 
 from core.eduschool.turnstile import EduSchoolTurnstileService, load_settings
 from core.logging_setup import configure_logging
+
+
+def refresh_camera_routes(service):
+    # Only camera routes are live-reloaded; credentials and activation stay unchanged.
+    routes = load_settings().device_ids
+    service.settings = replace(service.settings, device_ids=routes)
 
 
 def main() -> None:
@@ -25,6 +32,7 @@ def main() -> None:
         if active:
             try:
                 qualified = service.refresh_auto_approvals()
+                refresh_camera_routes(service)
                 queued = service.queue_new_events()
                 sent = service.deliver_due()
                 if qualified or queued or sent:

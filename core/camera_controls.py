@@ -46,11 +46,34 @@ def merge_cameras(base, overrides):
                 or not isinstance(camera.is_active, bool) or not isinstance(camera.restart_token, int)):
             raise ConfigurationError("Invalid camera direction, profile or enabled state")
         _camera_url(camera.rtsp_url, index)
+        if not isinstance(camera.device_id, str) or len(camera.device_id) > 64 or camera.device_id != camera.device_id.strip():
+            raise ConfigurationError("Invalid camera deviceId")
         result.append(camera)
     return tuple(result)
 
 
-def save_camera(camera, *, expected_revision: str, path: Path = CONTROL_FILE):
+def merge_device_ids(base, overrides):
+    """Append camera routes without reassigning existing attendance identities."""
+    from core.config import ConfigurationError
+
+    devices = dict(base)
+    for camera_id, values in overrides.items():
+        if not isinstance(values, dict) or values.get("id") != camera_id:
+            raise ConfigurationError("Invalid camera override")
+        device_id = values.get("device_id", "")
+        if not isinstance(device_id, str) or len(device_id) > 64 or device_id != device_id.strip():
+            raise ConfigurationError("deviceId: не более 64 символов, без пробелов по краям.")
+        if not device_id:
+            continue
+        if camera_id in devices and devices[camera_id] != device_id:
+            raise ConfigurationError("Нельзя изменить существующий deviceId камеры.")
+        devices[camera_id] = device_id
+    if len(set(devices.values())) != len(devices):
+        raise ConfigurationError("Этот deviceId уже назначен другой камере.")
+    return devices
+
+
+def save_camera(camera, *, expected_revision: str, path: Path = CONTROL_FILE, base_device_ids=None):
     from core.config import ConfigurationError
 
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,99}", camera.id):
@@ -62,7 +85,11 @@ def save_camera(camera, *, expected_revision: str, path: Path = CONTROL_FILE):
         current, revision = read_controls(path)
         if revision != expected_revision:
             raise ConfigurationError("Настройки изменены в другой сессии. Обновите страницу и повторите сохранение.")
+        previous_device = current.get(camera.id, {}).get("device_id", "")
+        if previous_device and camera.device_id != previous_device:
+            raise ConfigurationError("Нельзя изменить существующий deviceId камеры.")
         current[camera.id] = asdict(camera)
+        merge_device_ids(base_device_ids or {}, current)
         path.parent.mkdir(parents=True, exist_ok=True)
         handle, temporary = tempfile.mkstemp(prefix=".camera-controls-", dir=path.parent)
         try:

@@ -11,6 +11,7 @@ Vision Office is a local face-recognition and attendance platform for RTSP camer
 - [Docker deployment runbook](docs/DOCKER_RUNBOOK.md)
 - [Automatic GPU/CPU selection and recovery](docs/GPU_RUNTIME.md)
 - [Camera dashboard, recognition diagnostics and acceptance checklist](docs/RECOGNITION_AUDIT_RUNBOOK.md)
+- [Adding entrance/exit cameras from the dashboard](docs/CAMERA_ONBOARDING.md)
 - [Retiring the old ERP catalog without deleting EduSchool or attendance](docs/LEGACY_ERP_CLEANUP.md)
 - [Local PostgreSQL, hourly ERP sync and reference-photo runbook](docs/POSTGRESQL_RUNBOOK.md)
 - [Transfer ERP employees, photos and FaceID to another device](docs/CATALOG_TRANSFER_RUNBOOK.md)
@@ -34,9 +35,11 @@ Add two active camera entries to the local `config/settings.yaml`, assigning `ev
 
 The **Cameras** dashboard also supports adding, editing, pausing and restarting
 individual cameras. Device-local overrides live in `data/camera_controls.json`
-and take precedence over matching YAML camera IDs. Integration settings and API
-device mappings are not edited by these controls. Existing cameras keep their
-configured processing profile until an operator changes it.
+and take precedence over matching YAML camera IDs. New cameras save their unique
+EduSchool deviceId in the same local file; the sender reloads these routes each
+cycle. Existing deviceIds, endpoints, credentials and sending rules are preserved.
+Existing cameras keep their configured processing profile until changed.
+See [camera onboarding](docs/CAMERA_ONBOARDING.md) for deployment and acceptance.
 
 ## Install on another Windows computer
 

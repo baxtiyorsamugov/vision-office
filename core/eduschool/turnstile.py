@@ -76,19 +76,24 @@ class TurnstileSettings:
         return None
 
 
-def load_settings(path: str | Path = "config/settings.yaml") -> TurnstileSettings:
+def load_settings(path: str | Path = "config/settings.yaml", *, controls_path: str | Path | None = None) -> TurnstileSettings:
     config_path = Path(path)
     values = {}
     if config_path.is_file():
         with config_path.open("r", encoding="utf-8") as source:
             values = (yaml.safe_load(source) or {}).get("eduschool_turnstile") or {}
     devices = values.get("device_ids") or {}
+    devices = {str(key).strip(): str(value).strip() for key, value in devices.items()} if isinstance(devices, dict) else {}
+    if controls_path is not None or config_path.resolve() == Path("config/settings.yaml").resolve():
+        from core.camera_controls import CONTROL_FILE, merge_device_ids, read_controls
+        overrides, _ = read_controls(Path(controls_path) if controls_path is not None else CONTROL_FILE)
+        devices = merge_device_ids(devices, overrides)
     return TurnstileSettings(
         enabled=bool(values.get("enabled", False)),
         base_url=str(values.get("base_url", "https://backend.eduschool.uz")).rstrip("/"),
         branch_id=str(values.get("branch_id") or "").strip(),
         api_key=os.getenv("EDUSCHOOL_TURNSTILE_API_KEY", "").strip(),
-        device_ids={str(key).strip(): str(value).strip() for key, value in devices.items()} if isinstance(devices, dict) else {},
+        device_ids=devices,
         poll_interval_seconds=max(1, min(60, int(values.get("poll_interval_seconds", 5)))),
         request_timeout_seconds=max(1, min(60, int(values.get("request_timeout_seconds", 10)))),
     )
