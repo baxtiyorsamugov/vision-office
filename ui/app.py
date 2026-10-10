@@ -1388,6 +1388,85 @@ def render_edge_status(edge_settings):
 
 def render_delivery_log():
     render_header("Отправки API", "Журнал посещений EduSchool и ответов сервера")
+    view = st.segmented_control("Журнал", ["События", "Попытки HTTP"], default="События",
+                                key="delivery_log_view", label_visibility="collapsed")
+    if view != "Попытки HTTP":
+        render_delivery_events()
+        return
+    render_delivery_attempts()
+
+
+def render_delivery_events():
+    from core.eduschool.delivery_history import delivery_history_query
+
+    status_names = {"sent": "Отправлено", "pending": "В очереди", "retry": "Ожидает повтора",
+                    "sending": "Отправляется", "ambiguous": "Неясный исход", "blocked": "Заблокировано",
+                    "failed": "Ошибка", "skipped": "Пропущено"}
+    period_col, status_col, search_col = st.columns([1, 1, 2], gap="small")
+    with period_col:
+        period = st.selectbox("Период", ["24 часа", "7 дней", "30 дней", "Всё время"], index=1)
+    with status_col:
+        result = st.selectbox("Результат", ["Все", *status_names.values()])
+    with search_col:
+        search = st.text_input("Поиск", placeholder="ФИО, номер или ID события").strip()
+    category = st.selectbox("Категория", ["Все", "Сотрудники", "Ученики"])
+    with Session() as session:
+        query = delivery_history_query(session)
+        occurred = func.coalesce(EduSchoolTurnstileOutbox.sent_at, EduSchoolTurnstileOutbox.created_at)
+        days = {"24 часа": 1, "7 дней": 7, "30 дней": 30}
+        if period in days:
+            query = query.filter(occurred >= datetime.now(timezone.utc) - timedelta(days=days[period]))
+        if category != "Все":
+            query = query.filter(EduSchoolTurnstileOutbox.person_id.startswith(
+                "student:" if category == "Ученики" else "employee:"))
+        if search:
+            needle = f"%{search.lower()}%"
+            query = query.filter(or_(
+                func.lower(EduSchoolCatalogPerson.full_name).like(needle),
+                func.lower(RecognitionEvent.person_name).like(needle),
+                func.lower(EduSchoolCatalogPerson.employee_no).like(needle),
+                func.lower(EduSchoolCatalogPerson.student_no).like(needle),
+                func.lower(EduSchoolTurnstileOutbox.event_id).like(needle),
+                func.lower(EduSchoolTurnstileOutbox.backend_event_id).like(needle),
+            ))
+        totals = dict(query.with_entities(EduSchoolTurnstileOutbox.status, func.count())
+                      .group_by(EduSchoolTurnstileOutbox.status).all())
+        metrics = st.columns(4)
+        metrics[0].metric("Отправлено", totals.get("sent", 0))
+        metrics[1].metric("В очереди / повтор", totals.get("pending", 0) + totals.get("retry", 0))
+        metrics[2].metric("Ошибка / блокировка", totals.get("failed", 0) + totals.get("blocked", 0))
+        metrics[3].metric("Пропущено / неясный исход", totals.get("skipped", 0) + totals.get("ambiguous", 0) + totals.get("sending", 0))
+        if result != "Все":
+            query = query.filter(EduSchoolTurnstileOutbox.status == next(
+                key for key, label in status_names.items() if label == result))
+        total = query.count()
+        if not total:
+            st.info("По выбранным фильтрам событий отправки не найдено.")
+            return
+        pages = max(1, (total + 24) // 25)
+        page = st.selectbox("Страница", range(1, pages + 1), format_func=lambda value: f"{value} / {pages}") if pages > 1 else 1
+        rows = query.order_by(occurred.desc(), EduSchoolTurnstileOutbox.event_id.desc()).offset((page - 1) * 25).limit(25).all()
+        st.caption(f"Найдено событий: {total}")
+        st.dataframe(pd.DataFrame([{
+            "Время": format_local(item.sent_at or item.created_at, "%d.%m.%Y %H:%M:%S"),
+            "Человек": person.full_name if person else (event.person_name if event else item.person_id),
+            "Категория": "Ученик" if item.person_id.startswith("student:") else "Сотрудник",
+            "Результат": status_names.get(item.status, item.status),
+            "Направление": {"entry": "Вход", "exit": "Выход"}.get(event.event_type if event else "", "—"),
+            "Попытки": item.attempts,
+            "HTTP последней попытки": attempt.http_status if attempt else None,
+            "Код API": item.response_code,
+            "Адрес последней попытки": attempt.endpoint if attempt else "Не сохранён",
+            "ID EduSchool": item.backend_event_id or "",
+            "Причина": item.last_error or "",
+            "Номер": (person.student_no if person.person_type == "student" else person.employee_no) if person else "—",
+            "Событие": item.event_id,
+        } for item, event, person, attempt in rows]), width="stretch", hide_index=True)
+        if any(attempt is None and (item.attempts or item.status == "sent") for item, _, _, attempt in rows):
+            st.warning("Есть сохранённые результаты без подробного HTTP-журнала. HTTP-код и адрес для них не сохранены; повторная отправка не выполнялась.")
+
+
+def render_delivery_attempts():
     st.caption("Здесь показаны фактические попытки POST. События в очереди без попытки ещё не отправлялись.")
 
     period_col, status_col, search_col = st.columns([1, 1, 2], gap="small")
@@ -1409,9 +1488,9 @@ def render_delivery_log():
     }
     days = {"24 часа": 1, "7 дней": 7, "30 дней": 30}
     with Session() as session:
-        base = session.query(EduSchoolDeliveryAttempt).join(
+        base = session.query(EduSchoolDeliveryAttempt).outerjoin(
             EduSchoolTurnstileOutbox, EduSchoolTurnstileOutbox.event_id == EduSchoolDeliveryAttempt.event_id
-        ).join(RecognitionEvent, RecognitionEvent.id == EduSchoolDeliveryAttempt.event_id).outerjoin(
+        ).outerjoin(RecognitionEvent, RecognitionEvent.id == EduSchoolDeliveryAttempt.event_id).outerjoin(
             EduSchoolCatalogPerson, EduSchoolCatalogPerson.id == EduSchoolTurnstileOutbox.person_id
         )
         if period in days:

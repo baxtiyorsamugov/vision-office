@@ -167,5 +167,5 @@ def render_cameras(engine=None):
         st.caption(f"EduSchool · deviceId: {device_id or 'Не настроен'} · eventType: {event_type}")
     if not delivery.enabled:
         st.warning("Отправка посещений EduSchool отключена в настройках этого ПК.")
-    elif delivery.validation_error():
+    elif delivery.validation_error(check_credentials=False):
         st.warning("Настройки отправки EduSchool неполные. Проверьте раздел «Отправки».")

@@ -64,6 +64,49 @@ class StudentDeliveryUITests(unittest.TestCase):
             next(item for item in app.text_input if item.label == 'Поиск').set_value('S-TEST').run()
             self.assertFalse(app.exception)
             self.assertEqual(len(app.dataframe[0].value), 1)
+            app.session_state['delivery_log_view'] = 'Попытки HTTP'
+            app.run()
+            self.assertFalse(app.exception)
+            self.assertEqual(app.dataframe[0].value.iloc[0]['HTTP'], 200)
+
+    def test_legacy_sent_event_visible_without_fabricating_http_attempt(self):
+        st.cache_resource.clear()
+        st.cache_data.clear()
+        self.addCleanup(st.cache_resource.clear)
+        self.addCleanup(st.cache_data.clear)
+        engine = create_engine('sqlite://', connect_args={'check_same_thread': False}, poolclass=StaticPool)
+        self.addCleanup(engine.dispose)
+        Base.metadata.create_all(engine)
+        with Session(engine) as session:
+            session.add(EduSchoolTurnstileOutbox(event_id='legacy', person_id='employee:old',
+                        status='sent', attempts=1, response_code=0, backend_event_id='backend-old'))
+            session.add(EduSchoolTurnstileOutbox(event_id='skip', person_id='student:old',
+                        status='skipped', attempts=0, last_error='Attendance number missing'))
+            session.commit()
+        with patch('database.manager.get_engine', return_value=engine), \
+             patch('core.edge.config.load_edge_settings', return_value=EdgeSettings(enabled=False)), \
+             patch('core.eduschool.catalog.load_settings', return_value=EduSchoolCatalogSettings(enabled=True)):
+            app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'ui/app.py'), default_timeout=30).run()
+            app.radio[0].set_value('Отправки').run()
+            self.assertFalse(app.exception)
+            self.assertEqual(len(app.dataframe[0].value), 2)
+            sent = app.dataframe[0].value.query("Событие == 'legacy'").iloc[0]
+            self.assertEqual(sent['Результат'], 'Отправлено')
+            self.assertEqual(sent['ID EduSchool'], 'backend-old')
+            self.assertEqual(sent['Адрес последней попытки'], 'Не сохранён')
+            self.assertTrue(any('без подробного HTTP-журнала' in item.value for item in app.warning))
+            next(item for item in app.selectbox if item.label == 'Категория').set_value('Ученики').run()
+            self.assertEqual(len(app.dataframe[0].value), 1)
+            self.assertEqual(app.dataframe[0].value.iloc[0]['Результат'], 'Пропущено')
+            next(item for item in app.text_input if item.label == 'Поиск').set_value('no-match').run()
+            self.assertTrue(any('не найдено' in item.value for item in app.info))
+            app.session_state['delivery_log_view'] = 'Попытки HTTP'
+            app.run()
+            self.assertFalse(app.exception)
+            self.assertTrue(any('попыток отправки не найдено' in item.value for item in app.info))
+            with Session(engine) as session:
+                self.assertEqual(session.query(EduSchoolDeliveryAttempt).count(), 0)
+                self.assertEqual(session.get(EduSchoolTurnstileOutbox, 'legacy').status, 'sent')
 
 
 if __name__ == '__main__':

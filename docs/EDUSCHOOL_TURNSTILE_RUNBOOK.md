@@ -80,6 +80,15 @@ the command above.
   An interrupted attempt and its outbox entry become `ambiguous` after restart;
   the missing completion time shows that no response was recorded.
   The attempt journal never stores API keys, request bodies, or response bodies.
+- The delivery page defaults to Events: one row per outbox event, including old
+  saved results with no HTTP journal, queued, skipped and blocked events. The HTTP
+  Attempts view retains per-request evidence. Missing related recognition/catalog
+  rows do not hide the saved history. Historical HTTP codes and endpoint URLs are
+  shown as unavailable, never reconstructed from today's configuration. Viewing
+  history does not insert attempts, change delivery states or resend attendance.
+- Camera settings validate non-secret routing fields only. The UI container does
+  not receive the sender's API key; its absence there is not a sender failure.
+  The sending service still requires and validates its key normally.
 - An inactive profile, missing/duplicate `employeeNo`, or loss of an active
   FaceID photo removes qualification automatically. A changed source photo or
   number resets the prior qualification until the updated profile has an

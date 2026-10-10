@@ -11,6 +11,19 @@
 
 ## Current snapshot
 
+### Delivery journal visibility (2026-10-10)
+
+The default event journal now reads the same outbox state as person cards, with
+the latest HTTP evidence when available. Older sent results without attempt rows
+stay visible without invented HTTP status/endpoint. HTTP attempts have a separate
+view and use outer joins so missing related rows do not suppress history.
+Camera UI no longer requires the isolated sender secret to validate routing.
+No data migration, delivery replay or outbound request is part of this change.
+Validation: 25 focused tests passed; full Docker suite ran 205 tests with 174
+passed and 31 environment skips. A read-only PostgreSQL check found 2 saved sent
+events and 0 HTTP attempt rows locally; both now render in the browser under All
+Time. UI image rebuilt and local UI updated; deployment on the other PC is pending.
+
 ### Student attendance contract update (2026-10-09)
 
 Implemented catalog studentNo/branch persistence, additive migrations, separate

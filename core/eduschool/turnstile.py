@@ -74,7 +74,7 @@ class TurnstileSettings:
     request_timeout_seconds: int = 10
     students_enabled: bool = False
 
-    def validation_error(self) -> str | None:
+    def validation_error(self, *, check_credentials: bool = True) -> str | None:
         if not self.enabled:
             return None
         parsed = urlsplit(self.base_url)
@@ -83,7 +83,7 @@ class TurnstileSettings:
             return "EduSchool turnstile base_url must be an HTTPS origin"
         if not OBJECT_ID.fullmatch(self.branch_id):
             return "EduSchool turnstile branch_id is missing or invalid"
-        if not self.api_key:
+        if check_credentials and not self.api_key:
             return "EDUSCHOOL_TURNSTILE_API_KEY is missing"
         if not self.device_ids or any(not name or not value or len(value) > 64 for name, value in self.device_ids.items()):
             return "EduSchool turnstile device_ids are missing or invalid"
