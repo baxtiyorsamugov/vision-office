@@ -1,12 +1,16 @@
 import tempfile
+import io
+import json
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
+from urllib.parse import parse_qs, urlsplit
 
 from sqlalchemy import create_engine
 
 from core.eduschool.catalog import EduSchoolCatalogSettings, EduSchoolCatalogSync
-from database.models import EduSchoolCatalogPerson, EduSchoolCatalogSyncState, RemotePerson
+from database.models import EduSchoolCatalogPerson, EduSchoolCatalogSyncState, EduSchoolReferencePhoto, RemotePerson
 
 
 BRANCH = "661d00dea4401645477617d9"
@@ -37,6 +41,51 @@ class EduSchoolCatalogTests(unittest.TestCase):
             offset = (page - 1) * self.settings.page_size
             return {"data": {"total": len(rows), "data": rows[offset:offset + self.settings.page_size]}}
         self.service._fetch_page = get_page
+
+    def test_student_requests_exclude_archives_on_every_page_but_staff_unchanged(self):
+        second = dict(self.student, _id="661d00dea440164547761703", studentNo="S-2")
+        pages = [
+            {"data": {"total": 2, "data": [dict(self.student, studentNo="S-1")]}},
+            {"data": {"total": 2, "data": [second]}},
+            {"data": {"total": 1, "data": [self.employee]}},
+        ]
+        with patch("core.eduschool.catalog.urlopen", side_effect=[
+            io.BytesIO(json.dumps(page).encode()) for page in pages
+        ]) as fetch:
+            self.assertEqual(self.service.sync_once(), {"students": 2, "employees": 1})
+        for index, call in enumerate(fetch.call_args_list):
+            request = call.args[0]
+            url = urlsplit(request.full_url)
+            expected = {"page": [str(index + 1)], "limit": ["1"], "noArchive": ["true"]}
+            if index == 2:
+                expected = {"page": ["1"], "limit": ["1"]}
+            self.assertEqual(parse_qs(url.query), expected)
+            self.assertEqual(url.path, "/external-api/employees/pagin" if index == 2 else "/external-api/students/pagin")
+            self.assertEqual(request.get_header("Branch"), BRANCH)
+        with self.service.Session() as session:
+            self.assertEqual(session.get(EduSchoolCatalogPerson, f"student:{second['_id']}").student_no, "S-2")
+
+    def test_excluded_student_is_deactivated_without_removing_local_photos(self):
+        self._fake_pages({"student": [dict(self.student, studentNo="S-1")], "employee": [self.employee]})
+        self.service.sync_once()
+        person_id = f"student:{self.student['_id']}"
+        with self.service.Session.begin() as session:
+            person = session.get(EduSchoolCatalogPerson, person_id)
+            person.attendance_approved = True
+            person.attendance_approved_at = datetime.now(timezone.utc)
+            session.add(EduSchoolReferencePhoto(id="local-test", person_id=person_id,
+                        photo_path="data/test.jpg", image_checksum="test", source="local", active=True,
+                        embedding=[1.0] + [0.0] * 511))
+        self._fake_pages({"student": [], "employee": [self.employee]})
+        self.service.sync_once()
+        with self.service.Session() as session:
+            person = session.get(EduSchoolCatalogPerson, person_id)
+            self.assertFalse(person.active)
+            self.assertFalse(person.attendance_approved)
+            self.assertIsNone(person.attendance_approved_at)
+            self.assertEqual(person.source_status, "absent")
+            self.assertEqual(person.student_no, "S-1")
+            self.assertIsNotNone(session.get(EduSchoolReferencePhoto, "local-test"))
 
     def test_paginated_sync_repeat_and_inactive_reconciliation(self):
         second = dict(self.student, _id="661d00dea440164547761703", fullName="Student Two", status={"state": "new"})

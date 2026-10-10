@@ -17,6 +17,11 @@ No identifier is guessed from `_id`, UUID, employeeNo or local row position.
 
 The catalog now stores `student_no` and `source_branch_id` in PostgreSQL. Existing
 rows need a fresh catalog sync. Missing numbers remain missing and cannot send.
+Student pages use `/external-api/students/pagin?page=N&limit=SIZE&noArchive=true`
+as confirmed by the backend on 2026-10-10. The flag is present on every page;
+employee requests are unchanged. Use `limit=100`, not the malformed `limit100`.
+Previously cached students excluded by this filter become inactive/absent and
+lose delivery qualification; their local photos and attendance history are retained.
 Source-number/branch changes revoke qualification; payloads are rechecked before
 each request. The student's profile shows the number, delivery state, pause and
 history. The API journal supports student filtering and number search.
@@ -86,10 +91,10 @@ opt the school into student notifications.
   event ID; this change does not weaken the existing unknown-outcome safeguard.
 - Historical student attendance is not backfilled. Any later replay is a separate
   explicit operation, with notification and duplicate checks.
-- A read-only check on 2026-10-09 fetched 10 students from the real catalog. None
-  exposed a `studentNo` key (reported total 2017). This is a sample, not a claim
-  about every student. Backend must expose `Students.studentNo` in
-  `/external-api/students/pagin` or provide its documented lookup endpoint.
+- The 2026-10-09 sample lacked studentNo. On 2026-10-10 the backend supplied the
+  noArchive=true query: all 100 sampled rows returned studentNo and matched the
+  configured branch (reported total 1037). This resolves the earlier catalog
+  blocker for those records, not proof of attendance POST acceptance.
   No real attendance POST was made during implementation.
 
 ## Validation
@@ -104,3 +109,14 @@ PostgreSQL checks run against a disposable database, never production.
 skips, including student PostgreSQL and migration tests. CPU/CUDA images built;
 the student delivery card was visually checked in an isolated browser preview.
 Production services/configuration were not switched to the new version.
+
+2026-10-10 follow-up: focused EduSchool suite ran 53 tests, 44 passed and 9
+PostgreSQL-environment skips. Before applying the additive migration/catalog
+refresh on the local PC, a PostgreSQL custom-format backup was created and its
+table of contents validated. Full sync returned 1037 students and 524 unique
+employees (7 identical employee rows were collapsed). 1007 students have
+studentNo; the remaining 30 are active but still lack the number. 988 active
+students have numbers. No active student has an enrolled FaceID photo on this PC
+yet. All 153 existing photo rows were preserved. UI and catalog sync containers
+were updated; student delivery remains disabled in configuration and DB state.
+The other PC still needs deployment. No attendance POST was sent.

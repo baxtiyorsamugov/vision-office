@@ -17,12 +17,19 @@ Implemented catalog studentNo/branch persistence, additive migrations, separate
 student activation boundary, qualification, single-event payloads with isCamera,
 and student profile/journal support. Existing staff behavior is retained.
 Student sending defaults off; historical events are not replayed. Bulk is out of
-scope. Live acceptance is **BLOCKED** pending studentNo availability: a read-only
-10-student API sample contained no studentNo field. No real attendance was posted.
+scope. The initial missing-studentNo blocker was resolved in the 2026-10-10 API
+sample: all 100 returned students have numbers. Student catalog requests now use
+noArchive=true on every page; staff requests are unchanged. Excluded students
+become inactive without deleting photos/history. Live attendance acceptance is
+still **IN PROGRESS**; no real attendance was posted.
 See [student rollout](docs/EDUSCHOOL_STUDENT_ATTENDANCE.md).
 Docker suite: 199 tests, 177 passed, 22 environment skips. Student PostgreSQL
 migration/delivery tests and UI checks passed; CPU/CUDA image builds succeeded.
-Production rollout and real student API acceptance remain pending.
+2026-10-10: local PostgreSQL backed up and catalog refreshed, UI/sync updated.
+Full catalog: 1037 students, 524 unique staff; 1007 students have studentNo and
+30 active students still lack it. Existing 153 photo rows retained; local student
+FaceID enrollment is still absent. Focused suite: 44 passed, 9 PostgreSQL skips.
+Student sending stays off. Other-PC rollout and real API acceptance remain pending.
 
 ### Additional camera onboarding (2026-10-09)
 

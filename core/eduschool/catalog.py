@@ -74,7 +74,10 @@ class EduSchoolCatalogSync:
     def _fetch_page(self, person_type: str, page: int) -> dict:
         if not self.settings.base_url.startswith("https://"):
             raise ValueError("EduSchool External API requires an HTTPS base URL")
-        query = urlencode({"page": page, "limit": self.settings.page_size})
+        params = {"page": page, "limit": self.settings.page_size}
+        if person_type == "student":
+            params["noArchive"] = "true"
+        query = urlencode(params)
         url = f"{self.settings.base_url}/external-api/{person_type}s/pagin?{query}"
         request = Request(url, headers={
             "Authorization": f"Bearer {self.settings.bearer_token}",
