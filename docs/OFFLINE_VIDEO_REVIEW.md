@@ -49,6 +49,33 @@ and updates report links without rerunning inference. These modes never open the
 
 ## Interpretation and privacy
 
+### Missing student references
+
+The catalog alone is not a FaceID gallery. If students have source-photo URLs but
+no references, take a database backup and use the bounded enrollment command:
+
+```powershell
+docker compose run --rm --no-deps --entrypoint python -v "${PWD}:/offline:ro" ui /offline/tools/enroll_eduschool_photos.py --person-type student
+docker compose run --rm --no-deps --entrypoint python -v "${PWD}:/offline:ro" ui /offline/tools/enroll_eduschool_photos.py --person-type student --apply --output /app/data/exports/student-enrollment.json
+```
+
+The first command is a dry run. The second uses CPU by default and requires a new
+output path. It enrolls up to 1,000 active, pending or due-for-retry students with
+source URLs and no active reference. It excludes missing photos, inactive records,
+invalid-photo cases and already enrolled people. Existing single-face validation,
+disabled-photo checks and cross-person conflict rejection remain in force. Photos
+are downloaded from the configured source backend; no attendance is sent and no
+delivery settings are changed. Enrollment DOES add photos/embeddings to the local
+gallery used by live recognition. Run without a concurrent photo-enrollment worker.
+
+Use `--limit` to bound a run. For an explicitly provisioned GPU container, the same
+command can use service `vision-worker` with `--device cuda`; this launches only the
+enrollment script, not the live worker. Ensure GPU memory headroom first. A failed
+CUDA initialization can fall back to CPU, recorded in the result. Refresh the gallery
+snapshot and generate a new video report after enrollment; old reports remain unchanged.
+
+### Measurement limits
+
 - Sampling defaults to 5 frames per second with YOLO image size 960. Frame positions
   use frame index / declared source FPS; variable-rate or discontinuous footage needs
   timestamp-aware preprocessing before timing conclusions. Times are relative to the
