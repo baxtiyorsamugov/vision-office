@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 from collections import Counter
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -33,15 +34,12 @@ def latency_summary(values):
     return {"p50": percentile(.50), "p95": percentile(.95)}
 
 
-def export_gallery(destination):
-    """No service constructors, migrations or writes; DB enforces read-only access."""
+@contextmanager
+def readonly_session():
+    """Use an existing database, with writes rejected by the database itself."""
     from sqlalchemy import create_engine, text
     from sqlalchemy.orm import sessionmaker
-    from core.ai.engine import _load_known_faces
-    from core.edge.config import load_edge_settings
-    from core.eduschool.catalog import load_settings
     from database.manager import database_url
-    from database.models import EduSchoolCatalogPerson
 
     url = database_url()
     if url.startswith("sqlite:///"):
@@ -59,13 +57,23 @@ def export_gallery(destination):
                     connection.execute(text("PRAGMA query_only=ON"))
                 else:
                     raise ValueError("Only PostgreSQL and SQLite read-only snapshots are supported")
-                Session = sessionmaker(bind=connection)
-                names, vectors = _load_known_faces(Session)
-                with Session() as session:
-                    active = Counter(row.person_type for row in session.query(EduSchoolCatalogPerson).filter(
-                        EduSchoolCatalogPerson.active.is_(True)).all())
+                yield sessionmaker(bind=connection)
     finally:
         engine.dispose()
+
+
+def export_gallery(destination):
+    """No service constructors, migrations or writes; DB enforces read-only access."""
+    from core.ai.engine import _load_known_faces
+    from core.edge.config import load_edge_settings
+    from core.eduschool.catalog import load_settings
+    from database.models import EduSchoolCatalogPerson
+
+    with readonly_session() as Session:
+        names, vectors = _load_known_faces(Session)
+        with Session() as session:
+            active = Counter(row.person_type for row in session.query(EduSchoolCatalogPerson).filter(
+                EduSchoolCatalogPerson.active.is_(True)).all())
     unique = {item["person_id"]: item for item in names}
     payload = {
         "created_at": datetime.now(timezone.utc).isoformat(),

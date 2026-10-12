@@ -463,19 +463,18 @@
           <select id="recording" aria-label="Запись"></select>
         </div>
         <div class="segments">
-          <button id="analysis-mode" aria-pressed="true">Кадры анализа</button
-          ><button id="video-mode" aria-pressed="false">Видео</button>
+          <button id="analysis-mode" aria-pressed="false">Кадры анализа</button
+          ><button id="video-mode" aria-pressed="true">Видео с рамками</button>
         </div>
       </div>
       <div class="workbench">
         <section>
           <div class="stage" id="stage">
-            <img id="frame-image" alt="Кадр камеры" /><video
+            <img id="frame-image" alt="Кадр камеры" hidden /><video
               id="video"
               controls
               playsinline
               preload="metadata"
-              hidden
             ></video
             ><canvas id="overlay"></canvas>
           </div>
@@ -483,7 +482,7 @@
             Видео не воспроизводится в этом браузере. Кадры анализа доступны
             отдельно.
           </div>
-          <div class="controls" id="analysis-controls">
+          <div class="controls" id="analysis-controls" hidden>
             <button
               class="icon"
               id="previous"
@@ -552,6 +551,7 @@
         </aside>
       </div>
       <section class="section">
+        <a id="quality-link" hidden>Проверка эталонных фото</a>
         <h2>Сводка по записям</h2>
         <div class="table-wrap">
           <table>
@@ -598,8 +598,11 @@
       };
       let vi = 0,
         si = 0,
-        mode = "analysis",
+        mode = "video",
         timer = null,
+        videoCallback = null,
+        callbackKind = null,
+        displayedTime = 0,
         loadedImage = "",
         requestedImage = "";
       const key = "vision-review:" + report.created_at;
@@ -658,10 +661,11 @@
       }
       function setMode(value) {
         stop();
+        cancelVideoLoop();
         mode = value;
         const isAnalysis = value === "analysis";
         $("frame-image").hidden = !isAnalysis;
-        $("overlay").hidden = !isAnalysis;
+        $("overlay").hidden = false;
         $("video").hidden = isAnalysis;
         $("analysis-controls").hidden = !isAnalysis;
         $("analysis-mode").setAttribute("aria-pressed", isAnalysis);
@@ -671,6 +675,8 @@
           move(nearest($("video").currentTime));
         } else {
           $("video").currentTime = report.videos[vi].samples[si].time;
+          displayedTime = $("video").currentTime;
+          if (!$("video").paused) startVideoLoop();
         }
         renderFrame();
       }
@@ -685,20 +691,69 @@
         }
         return lo;
       }
+      function cancelVideoLoop() {
+        if (videoCallback !== null) {
+          if (callbackKind === "video")
+            $("video").cancelVideoFrameCallback(videoCallback);
+          else cancelAnimationFrame(videoCallback);
+        }
+        videoCallback = null;
+      }
+      function syncVideo(time = $("video").currentTime) {
+        if (mode !== "video") return;
+        displayedTime = time;
+        const index = nearest(time);
+        if (index !== si) {
+          si = index;
+          renderFrame();
+        } else draw();
+        $("frame-meta").textContent =
+          `Видео ${clock(time)} · анализ ${clock(report.videos[vi].samples[si].time)} · ${report.sample_fps} проверок/с`;
+      }
+      function startVideoLoop() {
+        cancelVideoLoop();
+        if (mode !== "video" || $("video").paused || $("video").ended) return;
+        if (typeof $("video").requestVideoFrameCallback === "function") {
+          callbackKind = "video";
+          videoCallback = $("video").requestVideoFrameCallback(
+            (_, metadata) => {
+              videoCallback = null;
+              syncVideo(metadata.mediaTime);
+              startVideoLoop();
+            },
+          );
+        } else {
+          callbackKind = "animation";
+          videoCallback = requestAnimationFrame(() => {
+            videoCallback = null;
+            syncVideo();
+            startVideoLoop();
+          });
+        }
+      }
       function draw() {
         const canvas = $("overlay"),
           stage = $("stage"),
           v = report.videos[vi],
           sample = v.samples[si];
         const dpr = window.devicePixelRatio || 1;
-        canvas.width = stage.clientWidth * dpr;
-        canvas.height = stage.clientHeight * dpr;
+        const width = Math.round(stage.clientWidth * dpr),
+          height = Math.round(stage.clientHeight * dpr);
+        if (canvas.width !== width || canvas.height !== height) {
+          canvas.width = width;
+          canvas.height = height;
+        }
         const ctx = canvas.getContext("2d");
-        ctx.scale(dpr, dpr);
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, stage.clientWidth, stage.clientHeight);
         if (
-          mode !== "analysis" ||
           !$("boxes").checked ||
-          loadedImage !== sample.image
+          (mode === "analysis" && loadedImage !== sample.image) ||
+          (mode === "video" &&
+            ($("video").seeking ||
+              $("video").readyState < 2 ||
+              displayedTime < sample.time ||
+              displayedTime - sample.time > 1 / report.sample_fps + 0.02))
         )
           return;
         const scale = Math.min(
@@ -749,8 +804,8 @@
         $("frame-meta").textContent =
           mode === "analysis"
             ? `Кадр ${sample.frame} · ${v.width}×${v.height} · YOLO ${ms(sample.detection_ms)}`
-            : "Видео без наложений · результаты относятся к выбранному кадру анализа";
-        if (requestedImage !== sample.image) {
+            : `Видео ${clock(displayedTime)} · анализ ${clock(sample.time)} · ${report.sample_fps} проверок/с`;
+        if (mode === "analysis" && requestedImage !== sample.image) {
           requestedImage = sample.image;
           loadedImage = "";
           $("frame-image").src = sample.image;
@@ -779,6 +834,7 @@
           );
           const select = element("select");
           select.setAttribute("aria-label", `Проверка лица ${fi + 1}`);
+          select.disabled = mode === "video" && !$("video").paused;
           [
             ["", "Не проверено"],
             ["correct", "Результат верный"],
@@ -802,11 +858,14 @@
       }
       function selectVideo(index) {
         stop();
+        cancelVideoLoop();
         $("video").pause();
         vi = index;
         si = 0;
+        displayedTime = 0;
         const v = report.videos[vi];
         $("video").src = v.video;
+        $("video").playbackRate = Number($("speed").value);
         $("media-error").hidden = true;
         $("stage").style.aspectRatio = `${v.width}/${v.height}`;
         $("seek").max = v.samples.length - 1;
@@ -912,7 +971,33 @@
           "Не найден кадр. Папка media должна находиться рядом с HTML.";
       };
       $("video").onerror = () => {
+        cancelVideoLoop();
         $("media-error").hidden = false;
+      };
+      $("video").onplay = () => {
+        renderFrame();
+        startVideoLoop();
+      };
+      $("video").onpause = () => {
+        cancelVideoLoop();
+        syncVideo();
+        renderFrame();
+      };
+      $("video").onended = () => {
+        cancelVideoLoop();
+        syncVideo();
+      };
+      $("video").onseeking = () => {
+        cancelVideoLoop();
+        draw();
+      };
+      $("video").onseeked = () => {
+        syncVideo();
+        startVideoLoop();
+      };
+      $("video").onloadeddata = () => syncVideo();
+      $("video").ontimeupdate = () => {
+        if ($("video").paused || callbackKind !== "video") syncVideo();
       };
       $("recording").onchange = (e) => selectVideo(Number(e.target.value));
       $("seek").oninput = (e) => {
@@ -979,6 +1064,15 @@
         setTimeout(() => URL.revokeObjectURL(url), 1000);
       };
       new ResizeObserver(draw).observe($("stage"));
+      if (
+        report.reference_quality &&
+        /^\.\.\/reference-quality-[\w-]+\/index\.html$/.test(
+          report.reference_quality,
+        )
+      ) {
+        $("quality-link").href = report.reference_quality;
+        $("quality-link").hidden = false;
+      }
       reviewCounts();
       selectVideo(0);
     </script>

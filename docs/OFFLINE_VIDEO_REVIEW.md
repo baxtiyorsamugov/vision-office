@@ -22,8 +22,14 @@ the 4 GB production card. `-VideoDirectory`, `-SampleFps`, and `-ImageSize` are 
 Open the resulting `data/exports/video-review-<timestamp>/index.html` in a browser.
 Keep its `media` folder beside it. Everything is local: scripts, videos, frames and
 report data. No web server or CDN is needed. H.264 previews are silent; originals
-are not modified. The report provides exact analysed frames with overlays,
-unannotated video playback, a filmstrip, latency statistics and manual review.
+are not modified. Video playback is the default, with boxes synchronized to the last
+analysed frame using requestVideoFrameCallback (animation-frame fallback). Video
+plays at its native cadence; boxes still update at the analysis sampling rate.
+There is no invented tracking, interpolated identity or new inference between samples.
+Boxes disappear while seeking or if the observation is more than one sampling interval
+(plus 20 ms rounding tolerance) old. Exact analysed frames, a filmstrip, latency
+statistics and manual review remain available. Pause video to enter a review label;
+labels refer to the displayed analysis timestamp, not an unanalysed video frame.
 Review labels are stored per report in the browser when storage is available;
 export JSON to preserve them independently of the browser.
 
@@ -48,6 +54,35 @@ depends on the browser. Exact analysed JPEG frames remain available either way.
 and updates report links without rerunning inference. These modes never open the DB.
 
 ## Interpretation and privacy
+
+### Read-only reference photo audit
+
+```powershell
+docker compose run --rm --no-deps --entrypoint python -v "${PWD}:/offline:ro" ui /offline/tools/audit_reference_photos.py --output /app/data/exports/reference-quality-new
+```
+
+Run from the project root with its existing database and detection model. The audit
+uses one CPU thread, reads active EduSchool references of active people with a
+database-enforced read-only transaction, and never runs recognition matching,
+enrollment, migrations, downloads, attendance or outbox services. It excludes local
+employees and legacy ERP. Photos must resolve within the project's data directory.
+Unreadable/oversize images are flagged; a detector runtime failure stops the audit.
+
+The new directory contains HTML, JSON and local thumbnails. Name/category/status
+filters and pagination allow inspection. Heuristics flag small faces, low-detail
+images, exposure extremes, face-edge contact and non-single-face detections. Metrics
+are calculated from source images, not thumbnails. Sharpness is Laplacian variance
+on a 112x112 grayscale face crop. Thresholds are triage heuristics, not calibrated
+quality scores or evidence that a particular video miss was caused by its reference.
+No enrollment photo, embedding, recognition threshold or API setting is changed.
+
+To link an audit, a video report's optional `reference_quality` field accepts a local
+path shaped `../reference-quality-<name>/index.html`; regenerate its HTML afterwards.
+Preserve `created_at` and sample order to retain existing manual-label keys.
+
+Focused checks: `python -m unittest discover -s tests -p test_reference_quality.py`
+and `python -m unittest discover -s tests -p test_offline_video.py`.
+Browser logic tests: `node tests/video_report.cjs` with jsdom available in NODE_PATH.
 
 ### Missing student references
 

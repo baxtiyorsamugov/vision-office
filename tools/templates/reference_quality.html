@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Vision Office · Эталонные фото</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      [hidden] {
+        display: none !important;
+      }
+      body {
+        margin: 0;
+        background: #f3f6f5;
+        color: #23332f;
+        font:
+          14px "Segoe UI",
+          Arial,
+          sans-serif;
+        letter-spacing: 0;
+      }
+      header {
+        padding: 20px 28px;
+        background: white;
+        border-bottom: 1px solid #dbe4df;
+        color: #127556;
+        font-size: 21px;
+        font-weight: 600;
+      }
+      main {
+        max-width: 1500px;
+        padding: 24px 28px;
+        margin: auto;
+      }
+      h1 {
+        font-size: 26px;
+        margin: 0 0 12px;
+      }
+      h2 {
+        font-size: 16px;
+      }
+      .muted,
+      footer {
+        color: #687a72;
+        line-height: 1.6;
+      }
+      .summary {
+        display: flex;
+        gap: 28px;
+        flex-wrap: wrap;
+        padding: 20px 0;
+        margin: 16px 0;
+        border-block: 1px solid #dbe4df;
+      }
+      .metric {
+        min-width: 140px;
+      }
+      .metric strong {
+        display: block;
+        font-size: 26px;
+        margin-top: 6px;
+      }
+      .filters {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin: 20px 0;
+      }
+      input,
+      select,
+      button {
+        font: inherit;
+        border: 1px solid #cbd8d1;
+        background: white;
+        border-radius: 4px;
+        padding: 10px;
+        color: inherit;
+      }
+      input {
+        flex: 1;
+        min-width: 150px;
+      }
+      button {
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.4;
+        cursor: default;
+      }
+      :focus-visible {
+        outline: 3px solid #209984;
+        outline-offset: 2px;
+      }
+      .table-wrap {
+        overflow: auto;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        background: white;
+        font-size: 13px;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 10px;
+        border-bottom: 1px solid #dbe4df;
+        vertical-align: middle;
+      }
+      th {
+        color: #5d7066;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      td:nth-child(2) {
+        min-width: 180px;
+        max-width: 320px;
+        overflow-wrap: anywhere;
+      }
+      td:nth-child(3) {
+        min-width: 150px;
+      }
+      .thumb {
+        width: 72px;
+        height: 90px;
+        object-fit: contain;
+        background: #edf1ef;
+        display: block;
+      }
+      .flag {
+        color: #986014;
+        display: block;
+      }
+      .ok {
+        color: #117751;
+      }
+      small {
+        display: block;
+        color: #687a72;
+        margin-top: 4px;
+      }
+      .pagination {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        justify-content: flex-end;
+        margin: 16px 0;
+      }
+      .pagination button {
+        width: 40px;
+        height: 40px;
+        padding: 0;
+        font-size: 22px;
+      }
+      details,
+      footer {
+        margin-top: 24px;
+        line-height: 1.7;
+      }
+      summary {
+        cursor: pointer;
+      }
+      @media (max-width: 600px) {
+        main {
+          padding: 18px 14px;
+        }
+        header {
+          padding: 15px;
+        }
+        h1 {
+          font-size: 22px;
+        }
+        .filters > * {
+          width: 100%;
+        }
+        .summary {
+          gap: 16px;
+        }
+        .metric {
+          min-width: 125px;
+        }
+        th,
+        td {
+          padding: 8px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>Vision Office</header>
+    <main>
+      <h1>Проверка эталонных фото</h1>
+      <div id="date" class="muted"></div>
+      <div class="summary" id="summary"></div>
+      <div id="coverage" class="muted"></div>
+      <div class="filters">
+        <input
+          id="search"
+          type="search"
+          placeholder="ФИО или ID"
+          aria-label="ФИО или ID"
+        />
+        <select id="category" aria-label="Категория">
+          <option value="">Все категории</option>
+          <option value="student">Студенты</option>
+          <option value="employee">Сотрудники</option>
+        </select>
+        <select id="status" aria-label="Результат">
+          <option value="review">Требуют проверки</option>
+          <option value="all">Все фото</option>
+          <option value="clear">Без флагов</option>
+        </select>
+      </div>
+      <div id="count" class="muted" aria-live="polite"></div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Фото</th>
+              <th>Профиль</th>
+              <th>Проверить</th>
+              <th>Фото, px</th>
+              <th>Лицо, px</th>
+              <th>Резкость*</th>
+              <th>Яркость*</th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <div class="pagination">
+        <button
+          id="prev"
+          title="Предыдущая страница"
+          aria-label="Предыдущая страница"
+        >
+          ‹</button
+        ><span id="page"></span
+        ><button
+          id="next"
+          title="Следующая страница"
+          aria-label="Следующая страница"
+        >
+          ›
+        </button>
+      </div>
+      <details>
+        <summary>Методика и ограничения</summary>
+        <p>
+          Только активные эталоны активных профилей EduSchool. Локальные
+          сотрудники и старый ERP не включены. Детектор buffalo_l, 320×320,
+          порог детекции 0.5. Сравнение личностей не выполнялось.
+        </p>
+        <p>
+          * Эвристики для ручной проверки, не оценка точности распознавания.
+          Маленькое лицо: сторона менее 80 px. Резкость: дисперсия Лапласиана на
+          сером изображении лица 112×112, флаг при значении менее 60. Яркость:
+          среднее 0–255, флаги ниже 45 или выше 210. Потеря деталей в
+          светах/тенях: более 20% пикселей ≤5 или ≥250. Граница: лицо касается
+          края фото. Эти пороги не меняют настройки распознавания.
+        </p>
+        <p>
+          Отсутствие флагов не гарантирует хороший эталон. Ракурс, актуальность
+          фото и соответствие человеку требуют отдельной проверки. Уменьшенные
+          изображения предназначены для навигации; метрики рассчитаны по
+          исходным фото. Ошибка детекции в этой проверке не доказывает
+          непригодность существующего эталона.
+        </p>
+      </details>
+      <footer>
+        База, фото, embeddings и настройки API не изменены. Отчёт содержит
+        персональные данные и предназначен для локального использования.
+      </footer>
+    </main>
+    <script id="report-data" type="application/json">
+      __REPORT_JSON__
+    </script>
+    <script>
+      "use strict";
+      const report = JSON.parse(
+        document.getElementById("report-data").textContent,
+      );
+      const $ = (id) => document.getElementById(id),
+        pageSize = 50;
+      let page = 0;
+      const names = {
+        no_face: "Лицо не выделено",
+        multiple_faces: "Несколько лиц",
+        invalid_box: "Некорректная область лица",
+        small_face: "Маленькое лицо",
+        low_detail: "Низкая детализация",
+        dark: "Тёмное лицо",
+        bright: "Светлое лицо",
+        clipping: "Потеря деталей в светах/тенях",
+        edge: "Лицо у края",
+        unreadable: "Фото недоступно или повреждено",
+      };
+      function el(tag, text, cls) {
+        const e = document.createElement(tag);
+        if (text !== undefined) e.textContent = text;
+        if (cls) e.className = cls;
+        return e;
+      }
+      const s = report.summary;
+      [
+        ["Проверено фото", s.checked],
+        ["Требуют проверки", s.review],
+        ["Без флагов", s.checked - s.review],
+      ].forEach(([label, value]) => {
+        const e = el("div", label, "metric");
+        e.append(el("strong", value));
+        $("summary").append(e);
+      });
+      $("date").textContent = new Date(report.created_at).toLocaleString(
+        "ru-RU",
+      );
+      const c = report.coverage;
+      $("coverage").textContent =
+        `Активных студентов: ${c.active.student || 0}, без эталонов: ${c.without_reference.student || 0}. Сотрудников: ${c.active.employee || 0}, без эталонов: ${c.without_reference.employee || 0}.`;
+      function render() {
+        const query = $("search").value.trim().toLocaleLowerCase("ru");
+        const filtered = report.photos.filter(
+          (r) =>
+            (!$("category").value || r.category === $("category").value) &&
+            ($("status").value === "all" ||
+              Boolean(r.flags.length) === ($("status").value === "review")) &&
+            (!query ||
+              `${r.name} ${r.person_id}`
+                .toLocaleLowerCase("ru")
+                .includes(query)),
+        );
+        const pages = Math.max(1, Math.ceil(filtered.length / pageSize));
+        page = Math.min(page, pages - 1);
+        $("count").textContent = `Найдено: ${filtered.length}`;
+        $("page").textContent = `${page + 1} / ${pages}`;
+        $("prev").disabled = page === 0;
+        $("next").disabled = page === pages - 1;
+        $("rows").replaceChildren();
+        filtered.slice(page * pageSize, (page + 1) * pageSize).forEach((r) => {
+          const row = el("tr"),
+            photo = el("td"),
+            profile = el("td", r.name),
+            flags = el("td");
+          if (r.thumbnail && /^media\/\d+\.jpg$/.test(r.thumbnail)) {
+            const img = el("img");
+            img.src = r.thumbnail;
+            img.alt = "Эталонное фото";
+            img.loading = "lazy";
+            img.className = "thumb";
+            photo.append(img);
+          } else photo.textContent = "—";
+          profile.append(
+            el("small", r.category === "student" ? "Студент" : "Сотрудник"),
+            el("small", r.person_id),
+          );
+          if (r.flags.length)
+            r.flags.forEach((f) =>
+              flags.append(el("span", names[f] || f, "flag")),
+            );
+          else flags.append(el("span", "Нет флагов", "ok"));
+          row.append(
+            photo,
+            profile,
+            flags,
+            el("td", r.width ? `${r.width}×${r.height}` : "—"),
+            el("td", r.face_width ? `${r.face_width}×${r.face_height}` : "—"),
+            el("td", r.sharpness ?? "—"),
+            el("td", r.brightness ?? "—"),
+          );
+          $("rows").append(row);
+        });
+      }
+      ["search", "category", "status"].forEach((id) =>
+        $(id).addEventListener(id === "search" ? "input" : "change", () => {
+          page = 0;
+          render();
+        }),
+      );
+      $("prev").onclick = () => {
+        page--;
+        render();
+      };
+      $("next").onclick = () => {
+        page++;
+        render();
+      };
+      render();
+    </script>
+  </body>
+</html>
