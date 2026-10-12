@@ -39,6 +39,9 @@ data/backups/
 *.mkv
 *.mov
 
+# Private offline camera recordings and review artifacts
+video/
+
 # Исключаем веса моделей
 *.pt
 *.onnx

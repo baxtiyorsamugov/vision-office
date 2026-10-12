@@ -16,3 +16,4 @@ models/
 *.avi
 *.mkv
 *.mov
+video/

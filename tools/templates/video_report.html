@@ -1,0 +1,986 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Vision Office · Проверка записей</title>
+    <style>
+      :root {
+        font-family:
+          Segoe UI,
+          Arial,
+          sans-serif;
+        color: #23332f;
+        background: #f3f6f5;
+        font-size: 14px;
+        letter-spacing: 0;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      [hidden] {
+        display: none !important;
+      }
+      body {
+        margin: 0;
+      }
+      button,
+      input,
+      select {
+        font: inherit;
+      }
+      button,
+      select {
+        cursor: pointer;
+      }
+      button:focus-visible,
+      input:focus-visible,
+      select:focus-visible {
+        outline: 3px solid #209984;
+        outline-offset: 2px;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 20px 28px;
+        background: #fff;
+        border-bottom: 1px solid #dbe4df;
+      }
+      header strong {
+        font-size: 21px;
+        color: #127556;
+      }
+      header span {
+        color: #687a72;
+        font-size: 12px;
+      }
+      main {
+        max-width: 1600px;
+        margin: auto;
+        padding: 24px 28px;
+      }
+      h1 {
+        font-size: 26px;
+        margin: 0 0 6px;
+      }
+      h2 {
+        font-size: 16px;
+        margin: 0 0 14px;
+      }
+      .muted {
+        color: #687a72;
+      }
+      .intro {
+        margin-bottom: 18px;
+      }
+      .notice {
+        border-left: 3px solid #d09926;
+        background: #fff8e6;
+        padding: 12px 16px;
+        margin: 16px 0;
+        line-height: 1.55;
+      }
+      .summary {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        border-top: 1px solid #dbe4df;
+        border-bottom: 1px solid #dbe4df;
+        margin: 18px 0;
+        background: #fff;
+      }
+      .metric {
+        padding: 16px 18px;
+      }
+      .metric span {
+        display: block;
+        color: #687a72;
+        font-size: 12px;
+      }
+      .metric strong {
+        display: block;
+        font-size: 27px;
+        margin-top: 7px;
+      }
+      .toolbar {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: center;
+        margin: 16px 0;
+        flex-wrap: wrap;
+      }
+      select {
+        max-width: 100%;
+        background: #fff;
+        border: 1px solid #cbd8d1;
+        border-radius: 5px;
+        padding: 9px;
+      }
+      #recording {
+        max-width: 620px;
+        min-width: 180px;
+        width: 100%;
+      }
+      .record-select {
+        flex: 1;
+        min-width: 0;
+      }
+      .segments {
+        display: flex;
+        gap: 0;
+      }
+      .segments button {
+        border-radius: 0;
+      }
+      .segments button:first-child {
+        border-radius: 5px 0 0 5px;
+      }
+      .segments button:last-child {
+        border-radius: 0 5px 5px 0;
+      }
+      .segments button[aria-pressed="true"] {
+        background: #e1f1e9;
+        color: #116546;
+        border-color: #238360;
+      }
+      button {
+        background: #fff;
+        border: 1px solid #cbd8d1;
+        border-radius: 5px;
+        padding: 9px 13px;
+        color: inherit;
+      }
+      button:hover {
+        background: #edf4f0;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      .workbench {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 320px;
+        gap: 24px;
+        align-items: start;
+      }
+      .stage {
+        position: relative;
+        background: #101a16;
+        aspect-ratio: 16/9;
+        overflow: hidden;
+        border-radius: 5px;
+      }
+      .stage img,
+      .stage video {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        display: block;
+      }
+      .stage video[hidden],
+      .stage img[hidden],
+      canvas[hidden] {
+        display: none;
+      }
+      .stage canvas {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+      }
+      .controls {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        margin-top: 12px;
+        flex-wrap: wrap;
+      }
+      .icon {
+        width: 40px;
+        height: 38px;
+        padding: 0;
+        font-size: 19px;
+        flex: none;
+      }
+      .controls input[type="range"] {
+        flex: 1;
+        min-width: 100px;
+        accent-color: #188465;
+      }
+      .time {
+        font-variant-numeric: tabular-nums;
+        min-width: 110px;
+        text-align: center;
+        font-size: 12px;
+      }
+      label {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+      }
+      input[type="checkbox"] {
+        accent-color: #168463;
+      }
+      .frame-meta {
+        display: flex;
+        gap: 18px;
+        flex-wrap: wrap;
+        margin: 12px 0;
+        font-size: 12px;
+        color: #687a72;
+      }
+      .inspector {
+        border-left: 1px solid #dbe4df;
+        padding-left: 24px;
+        min-width: 0;
+      }
+      .face-row {
+        padding: 12px 0;
+        border-top: 1px solid #dbe4df;
+      }
+      .face-row strong {
+        display: block;
+        font-size: 13px;
+        overflow-wrap: anywhere;
+        margin: 5px 0 10px;
+      }
+      .face-row select {
+        width: 100%;
+        font-size: 12px;
+      }
+      .status {
+        font-size: 12px;
+        color: #976711;
+      }
+      .status.matched {
+        color: #117751;
+      }
+      .statline {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        margin: 10px 0;
+        font-size: 13px;
+      }
+      .statline strong {
+        white-space: nowrap;
+      }
+      .filmstrip {
+        display: grid;
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        gap: 10px;
+        margin-top: 20px;
+      }
+      .shot {
+        padding: 0;
+        overflow: hidden;
+        text-align: left;
+        border-radius: 4px;
+      }
+      .shot img {
+        width: 100%;
+        aspect-ratio: 16/9;
+        object-fit: cover;
+        display: block;
+      }
+      .shot span {
+        display: block;
+        padding: 5px 7px;
+        font-size: 11px;
+        color: #687a72;
+      }
+      .section {
+        margin-top: 28px;
+        border-top: 1px solid #dbe4df;
+        padding-top: 20px;
+      }
+      .table-wrap {
+        overflow-x: auto;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        font-size: 12px;
+        background: #fff;
+      }
+      th,
+      td {
+        padding: 12px;
+        text-align: left;
+        border-bottom: 1px solid #e0e7e3;
+      }
+      th {
+        color: #5d7066;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      td:first-child {
+        overflow-wrap: anywhere;
+        min-width: 150px;
+        max-width: 340px;
+      }
+      footer {
+        margin-top: 24px;
+        color: #6c7d74;
+        font-size: 12px;
+        line-height: 1.6;
+      }
+      #media-error {
+        background: #fff1df;
+        color: #804812;
+        padding: 12px;
+      }
+      #review-message {
+        font-size: 12px;
+        color: #687a72;
+      }
+      #notes {
+        width: 100%;
+        padding: 9px;
+        border: 1px solid #cbd8d1;
+        border-radius: 4px;
+        resize: vertical;
+        min-height: 65px;
+        font: inherit;
+      }
+      details {
+        line-height: 1.7;
+        margin: 16px 0;
+      }
+      summary {
+        cursor: pointer;
+      }
+      .legend {
+        display: flex;
+        gap: 15px;
+        flex-wrap: wrap;
+        font-size: 12px;
+      }
+      .legend span:before {
+        content: "";
+        display: inline-block;
+        width: 9px;
+        height: 9px;
+        margin-right: 5px;
+        background: #e1b94c;
+      }
+      .legend span:first-child:before {
+        background: #29c991;
+      }
+      .legend span:last-child:before {
+        background: #809aab;
+      }
+      @media (max-width: 1000px) {
+        .workbench {
+          grid-template-columns: minmax(0, 1fr);
+        }
+        .inspector {
+          border-left: 0;
+          padding-left: 0;
+          border-top: 1px solid #dbe4df;
+          padding-top: 18px;
+        }
+        .filmstrip {
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+        }
+      }
+      #faces {
+        max-height: 340px;
+        overflow-y: auto;
+        padding-right: 8px;
+      }
+      @media (max-width: 600px) {
+        header {
+          padding: 15px;
+        }
+        header span {
+          display: none;
+        }
+        main {
+          padding: 18px 14px;
+        }
+        h1 {
+          font-size: 22px;
+        }
+        .summary {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        .metric {
+          padding: 12px;
+        }
+        .metric strong {
+          font-size: 24px;
+        }
+        .toolbar {
+          align-items: stretch;
+        }
+        .record-select {
+          flex-basis: 100%;
+        }
+        .segments {
+          width: 100%;
+        }
+        .segments button {
+          flex: 1;
+          font-size: 12px;
+        }
+        .filmstrip {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+        .controls {
+          gap: 5px;
+        }
+        .time {
+          min-width: 95px;
+        }
+        .controls input[type="range"] {
+          min-width: 80px;
+        }
+        .frame-meta {
+          gap: 8px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <strong>Vision Office</strong
+      ><span>Локальная лаборатория · без отправки в API</span>
+    </header>
+    <main>
+      <div class="intro">
+        <h1>Проверка распознавания на записях</h1>
+        <div class="muted" id="subtitle"></div>
+      </div>
+      <div class="notice" id="gallery-warning"></div>
+      <div class="summary" id="summary"></div>
+      <div class="toolbar">
+        <div class="record-select">
+          <select id="recording" aria-label="Запись"></select>
+        </div>
+        <div class="segments">
+          <button id="analysis-mode" aria-pressed="true">Кадры анализа</button
+          ><button id="video-mode" aria-pressed="false">Видео</button>
+        </div>
+      </div>
+      <div class="workbench">
+        <section>
+          <div class="stage" id="stage">
+            <img id="frame-image" alt="Кадр камеры" /><video
+              id="video"
+              controls
+              playsinline
+              preload="metadata"
+              hidden
+            ></video
+            ><canvas id="overlay"></canvas>
+          </div>
+          <div id="media-error" hidden>
+            Видео не воспроизводится в этом браузере. Кадры анализа доступны
+            отдельно.
+          </div>
+          <div class="controls" id="analysis-controls">
+            <button
+              class="icon"
+              id="previous"
+              title="Предыдущий кадр анализа"
+              aria-label="Предыдущий кадр анализа"
+            >
+              ‹</button
+            ><button
+              class="icon"
+              id="play"
+              title="Воспроизведение кадров анализа"
+              aria-label="Воспроизведение кадров анализа"
+            >
+              ▶</button
+            ><button
+              class="icon"
+              id="next"
+              title="Следующий кадр анализа"
+              aria-label="Следующий кадр анализа"
+            >
+              ›</button
+            ><input
+              id="seek"
+              type="range"
+              min="0"
+              value="0"
+              step="1"
+              aria-label="Кадр анализа"
+            /><span id="time" class="time"></span>
+          </div>
+          <div class="frame-meta">
+            <span id="frame-meta"></span
+            ><label><input type="checkbox" id="boxes" checked />Рамки</label
+            ><select id="speed" aria-label="Скорость воспроизведения">
+              <option value="0.5">0.5×</option>
+              <option value="1" selected>1×</option>
+              <option value="2">2×</option>
+            </select>
+          </div>
+          <div class="legend">
+            <span>Совпадение с базой</span><span>Не распознано</span
+            ><span>Маленькое лицо</span>
+          </div>
+          <div class="filmstrip" id="filmstrip"></div>
+        </section>
+        <aside class="inspector">
+          <h2>Лица в кадре</h2>
+          <div id="faces"></div>
+          <div class="section">
+            <h2>Обработка записи</h2>
+            <div id="stats"></div>
+          </div>
+          <div class="section">
+            <h2>Ручная проверка</h2>
+            <div id="review-counts" class="muted"></div>
+            <textarea
+              id="notes"
+              aria-label="Заметки по записи"
+              placeholder="Заметки по записи"
+            ></textarea>
+            <div class="toolbar">
+              <button id="export">Экспорт проверки</button>
+            </div>
+            <div id="review-message"></div>
+          </div>
+        </aside>
+      </div>
+      <section class="section">
+        <h2>Сводка по записям</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Запись</th>
+                <th>Длительность</th>
+                <th>Кадры анализа</th>
+                <th>Лица / совпадения</th>
+                <th>YOLO p95</th>
+                <th>FaceID p95</th>
+              </tr>
+            </thead>
+            <tbody id="overview"></tbody>
+          </table>
+        </div>
+      </section>
+      <details>
+        <summary>Условия тестирования</summary>
+        <div id="conditions"></div>
+      </details>
+      <footer>
+        Совпадение с базой не равно подтверждённой личности. Точность, пропуски
+        людей и ложные совпадения требуют ручной разметки. Повторные появления
+        лица в разных кадрах считаются отдельными наблюдениями, а не
+        посещениями. Рабочая база и API этим тестом не изменяются.
+      </footer>
+    </main>
+    <script id="report-data" type="application/json">
+      __REPORT_JSON__
+    </script>
+    <script>
+      "use strict";
+      const report = JSON.parse(
+          document.getElementById("report-data").textContent,
+        ),
+        $ = (id) => document.getElementById(id);
+      const statuses = {
+        matched: "Совпадение с базой",
+        unknown: "Нет совпадения",
+        small: "Лицо меньше 48 px",
+        no_embedding: "FaceID не выделил лицо",
+        no_gallery: "Нет эталонов",
+      };
+      let vi = 0,
+        si = 0,
+        mode = "analysis",
+        timer = null,
+        loadedImage = "",
+        requestedImage = "";
+      const key = "vision-review:" + report.created_at;
+      let review = { labels: {}, notes: {} };
+      try {
+        review = JSON.parse(localStorage.getItem(key)) || review;
+      } catch {}
+      const clock = (s) =>
+        `${Math.floor(s / 60)
+          .toString()
+          .padStart(2, "0")}:${Math.floor(s % 60)
+          .toString()
+          .padStart(2, "0")}.${Math.floor((s % 1) * 10)}`;
+      const count = (c) => Object.values(c).reduce((a, b) => a + b, 0),
+        ms = (value) => (value == null ? "—" : `${value} мс`);
+      function element(tag, text, cls) {
+        const el = document.createElement(tag);
+        if (text !== undefined) el.textContent = text;
+        if (cls) el.className = cls;
+        return el;
+      }
+      function metric(label, value) {
+        const el = element("div", undefined, "metric");
+        el.append(element("span", label), element("strong", value));
+        return el;
+      }
+      function line(label, value) {
+        const el = element("div", undefined, "statline");
+        el.append(element("span", label), element("strong", value));
+        return el;
+      }
+      function save() {
+        try {
+          localStorage.setItem(key, JSON.stringify(review));
+          $("review-message").textContent =
+            "Проверка сохранена в этом браузере.";
+        } catch {
+          $("review-message").textContent =
+            "Хранилище недоступно. Сохраните проверку через экспорт.";
+        }
+        reviewCounts();
+      }
+      function reviewCounts() {
+        const values = Object.values(review.labels);
+        $("review-counts").textContent =
+          `Подтверждено: ${values.filter((x) => x === "correct").length} · Ошибок: ${values.filter((x) => x === "wrong").length} · Неясно: ${values.filter((x) => x === "unclear").length}`;
+      }
+      function stop() {
+        clearInterval(timer);
+        timer = null;
+        $("play").textContent = "▶";
+      }
+      function move(value) {
+        si = Math.max(0, Math.min(report.videos[vi].samples.length - 1, value));
+        renderFrame();
+      }
+      function setMode(value) {
+        stop();
+        mode = value;
+        const isAnalysis = value === "analysis";
+        $("frame-image").hidden = !isAnalysis;
+        $("overlay").hidden = !isAnalysis;
+        $("video").hidden = isAnalysis;
+        $("analysis-controls").hidden = !isAnalysis;
+        $("analysis-mode").setAttribute("aria-pressed", isAnalysis);
+        $("video-mode").setAttribute("aria-pressed", !isAnalysis);
+        if (isAnalysis) {
+          $("video").pause();
+          move(nearest($("video").currentTime));
+        } else {
+          $("video").currentTime = report.videos[vi].samples[si].time;
+        }
+        renderFrame();
+      }
+      function nearest(time) {
+        const samples = report.videos[vi].samples;
+        let lo = 0,
+          hi = samples.length - 1;
+        while (lo < hi) {
+          const mid = Math.ceil((lo + hi) / 2);
+          if (samples[mid].time <= time) lo = mid;
+          else hi = mid - 1;
+        }
+        return lo;
+      }
+      function draw() {
+        const canvas = $("overlay"),
+          stage = $("stage"),
+          v = report.videos[vi],
+          sample = v.samples[si];
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = stage.clientWidth * dpr;
+        canvas.height = stage.clientHeight * dpr;
+        const ctx = canvas.getContext("2d");
+        ctx.scale(dpr, dpr);
+        if (
+          mode !== "analysis" ||
+          !$("boxes").checked ||
+          loadedImage !== sample.image
+        )
+          return;
+        const scale = Math.min(
+            stage.clientWidth / v.width,
+            stage.clientHeight / v.height,
+          ),
+          ox = (stage.clientWidth - v.width * scale) / 2,
+          oy = (stage.clientHeight - v.height * scale) / 2;
+        sample.faces.forEach((face, i) => {
+          const [x1, y1, x2, y2] = face.box;
+          const x = x1 * scale + ox,
+            y = y1 * scale + oy,
+            w = (x2 - x1) * scale,
+            h = (y2 - y1) * scale;
+          ctx.strokeStyle =
+            face.status === "matched"
+              ? "#29e1a0"
+              : face.status === "small"
+                ? "#8dacbd"
+                : "#ffce5a";
+          ctx.lineWidth = face.status === "small" ? 1 : 2;
+          ctx.strokeRect(x, y, w, h);
+          if (face.status === "small") return;
+          const text =
+            face.status === "matched" ? `${i + 1} · ${face.name}` : `#${i + 1}`;
+          ctx.font = "12px Segoe UI, Arial";
+          const max = stage.clientWidth - 12;
+          let clipped = text;
+          while (
+            ctx.measureText(clipped).width > max - 12 &&
+            clipped.length > 3
+          )
+            clipped = clipped.slice(0, -2);
+          const tw = ctx.measureText(clipped).width + 10,
+            tx = Math.max(0, Math.min(x, stage.clientWidth - tw)),
+            ty = Math.max(0, y - 22);
+          ctx.fillStyle = "#10271eed";
+          ctx.fillRect(tx, ty, tw, 20);
+          ctx.fillStyle = "#fff";
+          ctx.fillText(clipped, tx + 5, ty + 14);
+        });
+      }
+      function renderFrame() {
+        const v = report.videos[vi],
+          sample = v.samples[si];
+        $("seek").value = si;
+        $("time").textContent = `${clock(sample.time)} / ${clock(v.duration)}`;
+        $("frame-meta").textContent =
+          mode === "analysis"
+            ? `Кадр ${sample.frame} · ${v.width}×${v.height} · YOLO ${ms(sample.detection_ms)}`
+            : "Видео без наложений · результаты относятся к выбранному кадру анализа";
+        if (requestedImage !== sample.image) {
+          requestedImage = sample.image;
+          loadedImage = "";
+          $("frame-image").src = sample.image;
+        }
+        draw();
+        $("previous").disabled = si === 0;
+        $("next").disabled = si === v.samples.length - 1;
+        $("faces").replaceChildren();
+        if (!sample.faces.length)
+          $("faces").append(element("p", "Лиц не обнаружено", "muted"));
+        sample.faces.forEach((face, fi) => {
+          const row = element("div", undefined, "face-row");
+          row.append(
+            element(
+              "span",
+              `#${fi + 1} · ${statuses[face.status]}`,
+              "status " + face.status,
+            ),
+          );
+          row.append(
+            element(
+              "strong",
+              face.name ||
+                `${face.box[2] - face.box[0]}×${face.box[3] - face.box[1]} px`,
+            ),
+          );
+          const select = element("select");
+          select.setAttribute("aria-label", `Проверка лица ${fi + 1}`);
+          [
+            ["", "Не проверено"],
+            ["correct", "Результат верный"],
+            ["wrong", "Результат ошибочный"],
+            ["unclear", "Недостаточно данных"],
+          ].forEach(([val, label]) => {
+            const option = element("option", label);
+            option.value = val;
+            select.append(option);
+          });
+          const id = `${vi}:${si}:${fi}`;
+          select.value = review.labels[id] || "";
+          select.onchange = () => {
+            if (select.value) review.labels[id] = select.value;
+            else delete review.labels[id];
+            save();
+          };
+          row.append(select);
+          $("faces").append(row);
+        });
+      }
+      function selectVideo(index) {
+        stop();
+        $("video").pause();
+        vi = index;
+        si = 0;
+        const v = report.videos[vi];
+        $("video").src = v.video;
+        $("media-error").hidden = true;
+        $("stage").style.aspectRatio = `${v.width}/${v.height}`;
+        $("seek").max = v.samples.length - 1;
+        $("notes").value = review.notes[vi] || "";
+        $("stats").replaceChildren(
+          line(
+            "YOLO p50 / p95",
+            `${ms(v.detection_latency?.p50)} / ${ms(v.detection_latency?.p95)}`,
+          ),
+          line(
+            "FaceID p50 / p95",
+            `${ms(v.face_latency?.p50)} / ${ms(v.face_latency?.p95)}`,
+          ),
+          line("Время анализа", `${v.elapsed_seconds} с`),
+          line("Обработано", `${v.processed_fps} кадров/с`),
+          line("FaceID", v.face_device.toUpperCase()),
+          line("Маленькие лица", v.counts.small || 0),
+          line("Нет совпадения", v.counts.unknown || 0),
+          line("Не выделено FaceID", v.counts.no_embedding || 0),
+          line("Декодирование", v.decode_complete ? "Полное" : "Неполное"),
+        );
+        $("filmstrip").replaceChildren();
+        const interesting = v.samples
+          .map((s, i) => ({ s, i }))
+          .filter((x) => x.s.faces.length);
+        const pool = interesting.length
+          ? interesting
+          : v.samples.map((s, i) => ({ s, i }));
+        const picks = Array.from(
+          new Set(
+            Array.from({ length: Math.min(12, pool.length) }, (_, i) =>
+              Math.round(
+                (i * (pool.length - 1)) /
+                  Math.max(1, Math.min(12, pool.length) - 1),
+              ),
+            ),
+          ),
+        );
+        picks.forEach((p) => {
+          const { s, i } = pool[p],
+            button = element("button", undefined, "shot"),
+            img = element("img");
+          img.src = s.image;
+          img.loading = "lazy";
+          img.alt = `Кадр ${clock(s.time)}`;
+          button.append(
+            img,
+            element("span", `${clock(s.time)} · лиц ${s.faces.length}`),
+          );
+          button.onclick = () => {
+            setMode("analysis");
+            stop();
+            move(i);
+          };
+          $("filmstrip").append(button);
+        });
+        renderFrame();
+      }
+      report.videos.forEach((v, i) => {
+        const option = element("option", v.name);
+        option.value = i;
+        $("recording").append(option);
+        const row = element("tr");
+        [
+          v.name,
+          clock(v.duration),
+          v.samples.length,
+          `${count(v.counts)} / ${v.counts.matched || 0}`,
+          ms(v.detection_latency?.p95),
+          ms(v.face_latency?.p95),
+        ].forEach((value) => row.append(element("td", value)));
+        $("overview").append(row);
+      });
+      const all = report.videos.flatMap((v) => v.samples),
+        observations = all.flatMap((s) => s.faces),
+        identities = new Set(
+          observations
+            .filter((f) => f.status === "matched")
+            .map((f) => f.person_id),
+        );
+      $("summary").append(
+        metric("Записи", report.videos.length),
+        metric("Кадры анализа", all.length),
+        metric("Наблюдения лиц", observations.length),
+        metric("Предположительно узнано людей", identities.size),
+      );
+      $("subtitle").textContent =
+        `${new Date(report.created_at).toLocaleString("ru-RU")} · ${report.sample_fps} кадров анализа/с · YOLO ${report.device.toUpperCase()}`;
+      const g = report.gallery,
+        en = g.enrolled || {},
+        ac = g.active_catalog || {};
+      $("gallery-warning").textContent =
+        `Эталоны этого ПК: ${g.people} человек, ${g.references} фото. Сотрудники EduSchool: ${en.eduschool_employee || 0} из ${ac.employee || 0}; ученики: ${en.eduschool_student || 0} из ${ac.student || 0}. Отсутствие человека в этой базе не означает ошибку на рабочем ПК.`;
+      $("conditions").textContent =
+        `YOLO: ${report.imgsz} px. FaceID: 320×320. Порог EduSchool: ${report.eduschool_threshold}; локальный: ${report.threshold}. Снимок эталонов: ${report.gallery_created_at}. Использованы активные эталоны EduSchool и локальных сотрудников; старый ERP исключён. Каждое обнаруженное лицо от 48 px анализируется независимо с рабочими отступами crop и выбором центрального лица. Трекинг, повторные попытки, очередь и задержки живого потока не воспроизводятся; это тест моделей на выборке кадров, а не точная симуляция рабочего конвейера. Скорость включает декодирование и сохранение кадров, но не подготовку видео. Разметка относится к результату конкретного лица; пропуски людей следует отдельно отметить в заметках.`;
+      $("frame-image").onload = () => {
+        loadedImage = requestedImage;
+        draw();
+      };
+      $("frame-image").onerror = () => {
+        $("media-error").hidden = false;
+        $("media-error").textContent =
+          "Не найден кадр. Папка media должна находиться рядом с HTML.";
+      };
+      $("video").onerror = () => {
+        $("media-error").hidden = false;
+      };
+      $("recording").onchange = (e) => selectVideo(Number(e.target.value));
+      $("seek").oninput = (e) => {
+        stop();
+        move(Number(e.target.value));
+      };
+      $("previous").onclick = () => {
+        stop();
+        move(si - 1);
+      };
+      $("next").onclick = () => {
+        stop();
+        move(si + 1);
+      };
+      $("play").onclick = () => {
+        if (timer) {
+          stop();
+          return;
+        }
+        if (si === report.videos[vi].samples.length - 1) move(0);
+        $("play").textContent = "Ⅱ";
+        timer = setInterval(
+          () => {
+            if (si >= report.videos[vi].samples.length - 1) {
+              stop();
+              return;
+            }
+            move(si + 1);
+          },
+          1000 / report.sample_fps / Number($("speed").value),
+        );
+      };
+      $("boxes").onchange = draw;
+      $("speed").onchange = () => {
+        stop();
+        $("video").playbackRate = Number($("speed").value);
+      };
+      $("analysis-mode").onclick = () => setMode("analysis");
+      $("video-mode").onclick = () => setMode("video");
+      $("notes").oninput = () => {
+        review.notes[vi] = $("notes").value;
+        save();
+      };
+      $("export").onclick = () => {
+        const blob = new Blob(
+            [
+              JSON.stringify(
+                {
+                  report_created_at: report.created_at,
+                  videos: report.videos.map((v) => v.name),
+                  ...review,
+                },
+                null,
+                2,
+              ),
+            ],
+            { type: "application/json" },
+          ),
+          url = URL.createObjectURL(blob),
+          a = element("a");
+        a.href = url;
+        a.download = "manual-review.json";
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      };
+      new ResizeObserver(draw).observe($("stage"));
+      reviewCounts();
+      selectVideo(0);
+    </script>
+  </body>
+</html>
