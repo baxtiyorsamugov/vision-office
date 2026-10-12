@@ -88,8 +88,9 @@ function makeDom(nativeCallbacks = true) {
           };
         }
         w.HTMLCanvasElement.prototype.getContext = () => ({
-        setTransform() {},
-        clearRect() {},
+          setTransform() {},
+          clearRect() {},
+          setLineDash() {},
           strokeRect() {
             strokes++;
           },
@@ -165,19 +166,45 @@ for (const native of [true, false]) {
   dom.window.close();
 }
 assert.ok(canceled > 0);
-const qualityTemplate = fs.readFileSync("tools/templates/reference_quality.html", "utf8");
+report.comparison = {
+  roi: [50, 50, 450, 450],
+  source: "fixture.mp4",
+  rows: [],
+};
+report.videos[0].roi = report.comparison.roi;
+const pairedDom = makeDom(),
+  paired = (id) => pairedDom.window.document.getElementById(id);
+paired("video").currentTime = 0.25;
+paired("recording").value = "1";
+paired("recording").dispatchEvent(new pairedDom.window.Event("change"));
+assert.equal(paired("video").currentTime, 0.25);
+assert.equal(paired("seek").value, "1");
+assert.equal(paired("comparison").hidden, false);
+pairedDom.window.close();
+const qualityTemplate = fs.readFileSync(
+  "tools/templates/reference_quality.html",
+  "utf8",
+);
 const qualityReport = {
-  created_at: report.created_at, summary: { checked: 62, review: 61 },
+  created_at: report.created_at,
+  summary: { checked: 62, review: 61 },
   coverage: { active: { student: 62 }, without_reference: { student: 0 } },
   photos: Array.from({ length: 62 }, (_, i) => ({
-    id: String(i), person_id: String(i), name: i === 0 ? "<b>Fixture</b>" : `Person ${i}`,
-    category: "student", flags: i === 61 ? [] : ["low_detail"],
+    id: String(i),
+    person_id: String(i),
+    name: i === 0 ? "<b>Fixture</b>" : `Person ${i}`,
+    category: "student",
+    flags: i === 61 ? [] : ["low_detail"],
   })),
 };
-const qualityDom = new JSDOM(qualityTemplate.replace("__REPORT_JSON__", JSON.stringify(qualityReport)), {
-  runScripts: "dangerously", virtualConsole: vc,
-});
-const q = id => qualityDom.window.document.getElementById(id);
+const qualityDom = new JSDOM(
+  qualityTemplate.replace("__REPORT_JSON__", JSON.stringify(qualityReport)),
+  {
+    runScripts: "dangerously",
+    virtualConsole: vc,
+  },
+);
+const q = (id) => qualityDom.window.document.getElementById(id);
 assert.equal(q("rows").children.length, 50);
 assert.equal(q("rows").querySelector("b"), null);
 q("next").click();

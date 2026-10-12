@@ -55,6 +55,45 @@ and updates report links without rerunning inference. These modes never open the
 
 ## Interpretation and privacy
 
+### Paired ROI experiment
+
+`tools/compare_video_roi.py` compares full-frame detection against detection on an
+unscaled source ROI, using the SAME sampled frames, immutable gallery snapshot,
+YOLO input size and recognition thresholds. It never connects to the database.
+The 48px gate and FaceID crop padding use original pixels for both variants.
+Only boxes completely inside the specified ROI (2px border margin) are counted in
+BOTH variants, to avoid comparing a crowded full background to an empty crop.
+Boundary detections are excluded; counts are not recall and detections are not
+matched to ground-truth identities. A higher count can include false positives.
+
+Example for `kirish.mp4`, ROI x1=800, y1=320, x2=1920, y2=1440:
+
+```powershell
+.\.venv\Scripts\python.exe tools/compare_video_roi.py --input video/kirish.mp4 --gallery data/exports/gallery.json --roi 800 320 1920 1440 --preview data/exports/kirish-full-timed.mp4 --roi-preview data/exports/kirish-roi-timed.mp4 --output data/exports/roi-comparison-new --device cuda
+```
+
+Use an existing **full-frame H.264 preview from the same source clip** for `--preview`.
+Both previews must preserve the original frame count/FPS; the tool checks timing
+metadata and aspect ratio, not pixel provenance. They are used ONLY for playback;
+inference always reads `--input`. CFR conversion or trimmed previews may fail this
+check. For variable-timestamp recordings, create new previews with ffmpeg
+`setpts=N/(FPS*TB)` and `-r FPS -fps_mode cfr`, using the original OpenCV FPS;
+apply `scale=1280:-2` for the full preview and `crop=1120:1120:800:320` for the ROI.
+This deliberately conforms playback to the analysis frame-index/FPS timeline,
+not the source's wall-clock timestamps. Recheck frame counts after transcoding.
+The same frame-index/FPS timestamp limitations as the normal report apply.
+
+Each pair alternates A/B execution order after warming both detector shapes. The
+reported pipeline timing includes detection, FaceID and matching but excludes
+decoding, saved JPEG frames and transcoding; it is not a live-camera throughput
+benchmark. CPU/GPU contention still affects timing. The report includes input,
+gallery and detector hashes. Switching variants keeps the review time; the full
+view marks the comparison zone. A crop may improve detector detail but cannot
+recover information absent from the original or repair missing references.
+
+Focused tests: `python -m unittest discover -s tests -p test_video_roi.py` and
+`node tests/video_report.cjs` with jsdom available.
+
 ### Read-only reference photo audit
 
 ```powershell

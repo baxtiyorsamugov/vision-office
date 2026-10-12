@@ -457,6 +457,32 @@
         <div class="muted" id="subtitle"></div>
       </div>
       <div class="notice" id="gallery-warning"></div>
+      <section id="comparison" hidden>
+        <h2>Одна зона · одинаковые кадры · одинаковые пороги</h2>
+        <p class="muted" id="comparison-scope"></p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Вариант</th>
+                <th>Наблюдения</th>
+                <th>Меньше 48 px</th>
+                <th>Без вектора</th>
+                <th>Без совпадения</th>
+                <th>Совпадения</th>
+                <th>Профили*</th>
+                <th>Обработка p95</th>
+              </tr>
+            </thead>
+            <tbody id="comparison-rows"></tbody>
+          </table>
+        </div>
+        <p class="muted">
+          * Предсказания модели, не подтверждённые личности. Больше совпадений
+          не означает выше точность. Повторные кадры не являются отдельными
+          проходами.
+        </p>
+      </section>
       <div class="summary" id="summary"></div>
       <div class="toolbar">
         <div class="record-select">
@@ -762,6 +788,19 @@
           ),
           ox = (stage.clientWidth - v.width * scale) / 2,
           oy = (stage.clientHeight - v.height * scale) / 2;
+        if (v.roi) {
+          const [a, b, c, d] = v.roi;
+          ctx.strokeStyle = "#ffffff";
+          ctx.lineWidth = 2;
+          ctx.setLineDash([8, 5]);
+          ctx.strokeRect(
+            a * scale + ox,
+            b * scale + oy,
+            (c - a) * scale,
+            (d - b) * scale,
+          );
+          ctx.setLineDash([]);
+        }
         sample.faces.forEach((face, i) => {
           const [x1, y1, x2, y2] = face.box;
           const x = x1 * scale + ox,
@@ -857,14 +896,20 @@
         });
       }
       function selectVideo(index) {
+        const position = report.comparison
+          ? mode === "analysis"
+            ? report.videos[vi].samples[si].time
+            : $("video").currentTime
+          : 0;
         stop();
         cancelVideoLoop();
         $("video").pause();
         vi = index;
-        si = 0;
-        displayedTime = 0;
+        si = report.comparison ? nearest(position) : 0;
+        displayedTime = position;
         const v = report.videos[vi];
         $("video").src = v.video;
+        $("video").currentTime = position;
         $("video").playbackRate = Number($("speed").value);
         $("media-error").hidden = true;
         $("stage").style.aspectRatio = `${v.width}/${v.height}`;
@@ -947,7 +992,10 @@
             .map((f) => f.person_id),
         );
       $("summary").append(
-        metric("Записи", report.videos.length),
+        metric(
+          report.comparison ? "Варианты одной записи" : "Записи",
+          report.videos.length,
+        ),
         metric("Кадры анализа", all.length),
         metric("Наблюдения лиц", observations.length),
         metric("Предположительно узнано людей", identities.size),
@@ -961,6 +1009,31 @@
         `Эталоны этого ПК: ${g.people} человек, ${g.references} фото. Сотрудники EduSchool: ${en.eduschool_employee || 0} из ${ac.employee || 0}; ученики: ${en.eduschool_student || 0} из ${ac.student || 0}. Отсутствие человека в этой базе не означает ошибку на рабочем ПК.`;
       $("conditions").textContent =
         `YOLO: ${report.imgsz} px. FaceID: 320×320. Порог EduSchool: ${report.eduschool_threshold}; локальный: ${report.threshold}. Снимок эталонов: ${report.gallery_created_at}. Использованы активные эталоны EduSchool и локальных сотрудников; старый ERP исключён. Каждое обнаруженное лицо от 48 px анализируется независимо с рабочими отступами crop и выбором центрального лица. Трекинг, повторные попытки, очередь и задержки живого потока не воспроизводятся; это тест моделей на выборке кадров, а не точная симуляция рабочего конвейера. Скорость включает декодирование и сохранение кадров, но не подготовку видео. Разметка относится к результату конкретного лица; пропуски людей следует отдельно отметить в заметках.`;
+      if (report.comparison) {
+        $("comparison").hidden = false;
+        document.querySelector("h1").textContent =
+          "Сравнение полного кадра и зоны прохода";
+        const c = report.comparison,
+          [x1, y1, x2, y2] = c.roi;
+        $("comparison-scope").textContent =
+          `${c.source} · зона (${x1}, ${y1})–(${x2}, ${y2}), ${x2 - x1}×${y2 - y1} px оригинала. В обоих вариантах учитываются только рамки целиком внутри зоны, с отступом 2 px от границы.`;
+        c.rows.forEach((r) => {
+          const row = element("tr");
+          [
+            r.variant,
+            r.observations,
+            r.small || 0,
+            r.no_embedding || 0,
+            r.unknown || 0,
+            r.matched || 0,
+            r.predicted_profiles,
+            ms(r.pipeline_p95),
+          ].forEach((value) => row.append(element("td", value)));
+          $("comparison-rows").append(row);
+        });
+        $("conditions").textContent =
+          `Парный тест: одни кадры, эталоны и пороги (${report.threshold} / ${report.eduschool_threshold}). YOLO ${report.imgsz} px обрабатывает весь оригинал в A и вырезку в B. FaceID в обоих случаях получает вырезку лица из оригинала с одинаковыми отступами; минимум 48 px измеряется в оригинале, не после увеличения. Порядок A/B чередуется. Время обработки включает детекцию и FaceID, но не декодирование, JPEG и видео. Трекинг и рабочая очередь не воспроизводятся. Рамки на границе исключены; обнаружения A и B не сопоставлены с разметкой людей. Сравнение количества не является оценкой точности или полноты.`;
+      }
       $("frame-image").onload = () => {
         loadedImage = requestedImage;
         draw();
