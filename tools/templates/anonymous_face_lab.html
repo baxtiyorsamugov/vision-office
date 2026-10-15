@@ -1,0 +1,1200 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Тестовые эталоны · Vision Office</title>
+    <style>
+      :root {
+        font:
+          14px Arial,
+          sans-serif;
+        color: #223b3c;
+        background: #f6f8f8;
+        letter-spacing: 0;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+      }
+      header,
+      main,
+      footer {
+        max-width: 1440px;
+        margin: auto;
+        padding: 22px 28px;
+      }
+      header {
+        display: flex;
+        justify-content: space-between;
+        gap: 18px;
+        align-items: center;
+        border-bottom: 1px solid #d4dede;
+      }
+      h1 {
+        font-size: 25px;
+        margin: 6px 0;
+      }
+      h2 {
+        font-size: 18px;
+        margin: 0 0 16px;
+      }
+      h3 {
+        font-size: 15px;
+      }
+      p {
+        line-height: 1.5;
+      }
+      .muted,
+      small {
+        color: #667b7b;
+      }
+      .brand,
+      .matched {
+        color: #087957;
+      }
+      .warning,
+      .unknown,
+      .ambiguous {
+        color: #865c0c;
+      }
+      section {
+        padding: 24px 0;
+        border-bottom: 1px solid #d4dede;
+      }
+      button,
+      select,
+      input {
+        font: inherit;
+        border: 1px solid #c3d2d0;
+        border-radius: 5px;
+        color: inherit;
+        background: white;
+        min-height: 38px;
+        padding: 8px 10px;
+      }
+      button {
+        cursor: pointer;
+      }
+      button:hover {
+        border-color: #087957;
+      }
+      button:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+      button.primary {
+        background: #087957;
+        color: white;
+        border-color: #087957;
+      }
+      .icon {
+        width: 38px;
+        min-width: 38px;
+        padding: 0;
+        font-size: 21px;
+      }
+      label {
+        display: grid;
+        gap: 6px;
+        font-size: 12px;
+        min-width: 0;
+      }
+      select {
+        width: 100%;
+        min-width: 0;
+      }
+      .toolbar {
+        display: grid;
+        grid-template-columns: 2fr 1fr 1fr;
+        gap: 16px;
+        margin-bottom: 16px;
+      }
+      .split {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 320px;
+        gap: 24px;
+      }
+      .candidates {
+        display: grid;
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        gap: 8px;
+      }
+      .candidate {
+        padding: 6px;
+        min-width: 0;
+        background: white;
+        text-align: left;
+      }
+      .candidate[aria-pressed="true"] {
+        outline: 2px solid #087957;
+      }
+      .candidate img {
+        width: 100%;
+        height: 105px;
+        object-fit: contain;
+        background: #e7eeee;
+      }
+      .candidate small {
+        display: block;
+        font-size: 11px;
+        line-height: 1.5;
+      }
+      .nav,
+      .actions {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin: 12px 0;
+      }
+      .nav span {
+        flex: 1;
+      }
+      .reference-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 18px;
+      }
+      .ref {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px;
+        background: white;
+        border: 1px solid #d4dede;
+        border-radius: 5px;
+      }
+      .ref img {
+        width: 48px;
+        height: 58px;
+        object-fit: contain;
+      }
+      .preview {
+        position: relative;
+        background: #182222;
+        aspect-ratio: 16/9;
+        overflow: hidden;
+      }
+      .preview img,
+      .preview video {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+      }
+      .overlay {
+        position: absolute;
+        border: 2px solid #29e8af;
+        pointer-events: none;
+      }
+      #liveBoxes {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        overflow: hidden;
+      }
+      .liveBox {
+        position: absolute;
+        border: 2px solid #e5b852;
+      }
+      .liveBox.matched {
+        border-color: #29e8af;
+      }
+      .liveBox span {
+        position: absolute;
+        bottom: 100%;
+        left: -2px;
+        font-size: 11px;
+        background: #162d2df2;
+        color: white;
+        padding: 3px 5px;
+        white-space: nowrap;
+      }
+      .pair {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+      }
+      .pair img {
+        width: 100%;
+        height: 190px;
+        object-fit: contain;
+        background: #e7eeee;
+      }
+      .pair p {
+        font-size: 12px;
+        overflow-wrap: anywhere;
+      }
+      .result {
+        font-size: 22px;
+        font-weight: bold;
+        margin: 12px 0;
+      }
+      .check {
+        display: flex;
+        align-items: center;
+        font-size: 13px;
+        gap: 8px;
+      }
+      .check input {
+        min-height: 0;
+        accent-color: #087957;
+      }
+      .summary {
+        padding: 12px 0;
+        line-height: 1.7;
+      }
+      .empty {
+        padding: 40px;
+        text-align: center;
+        color: #667b7b;
+      }
+      .meta {
+        font-size: 12px;
+        overflow-wrap: anywhere;
+        line-height: 1.5;
+      }
+      details {
+        line-height: 1.6;
+      }
+      summary {
+        cursor: pointer;
+        font-weight: bold;
+      }
+      #refContext {
+        margin-top: 12px;
+      }
+      #feedback {
+        min-height: 22px;
+      }
+      footer {
+        font-size: 12px;
+        line-height: 1.5;
+      }
+      .preview [hidden],
+      [hidden] {
+        display: none !important;
+      }
+      @media (max-width: 1000px) {
+        .candidates {
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+        }
+        .split {
+          grid-template-columns: minmax(0, 1fr) 280px;
+        }
+      }
+      @media (max-width: 680px) {
+        header,
+        main,
+        footer {
+          padding: 16px;
+        }
+        header {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+        h1 {
+          font-size: 22px;
+        }
+        .toolbar,
+        .split {
+          grid-template-columns: minmax(0, 1fr);
+        }
+        .candidates {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+        .candidate img {
+          height: 90px;
+        }
+        .pair img {
+          height: 160px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div>
+        <div class="brand">Vision Office · Offline</div>
+        <h1>Тестовые эталоны</h1>
+      </div>
+      <div class="muted" id="runState"></div>
+    </header>
+    <main>
+      <section>
+        <h2>1. Эталоны</h2>
+        <div class="toolbar">
+          <label>Запись для эталонов<select id="refVideo"></select></label
+          ><label
+            >Порядок кадров<select id="sort">
+              <option value="size">Крупные лица</option>
+              <option value="time">По времени</option>
+            </select></label
+          ><label>Тестовый человек<select id="profile"></select></label>
+        </div>
+        <div class="split">
+          <div>
+            <div id="candidates" class="candidates"></div>
+            <div class="nav">
+              <button
+                id="refPrev"
+                class="icon"
+                title="Предыдущие кадры"
+                aria-label="Предыдущие кадры"
+              >
+                ‹</button
+              ><span id="refPage"></span
+              ><button
+                id="refNext"
+                class="icon"
+                title="Следующие кадры"
+                aria-label="Следующие кадры"
+              >
+                ›
+              </button>
+            </div>
+          </div>
+          <aside>
+            <div class="pair">
+              <div>
+                <img id="selectedRef" alt="Выбранный эталон" />
+                <p id="selectedRefMeta"></p>
+              </div>
+              <div>
+                <h3 id="newName"></h3>
+                <div class="actions">
+                  <button id="create" class="primary">Создать человека</button
+                  ><button id="add">Добавить эталон</button>
+                </div>
+              </div>
+            </div>
+            <div id="feedback" class="warning" role="status"></div>
+            <div class="preview" id="refContext">
+              <img id="refFrame" alt="Кадр эталона" />
+              <div class="overlay" id="refBox"></div>
+            </div>
+          </aside>
+        </div>
+        <div id="references" class="reference-list"></div>
+        <p class="meta muted" id="referenceStatus"></p>
+      </section>
+      <section>
+        <h2>2. Проверка на других записях</h2>
+        <div class="toolbar">
+          <label>Проверочная запись<select id="testVideo"></select></label
+          ><label
+            >Результат<select id="filter">
+              <option value="all">Все наблюдения</option>
+              <option value="matched">Совпадения</option>
+              <option value="unknown">Неизвестные</option>
+              <option value="ambiguous">Неоднозначные</option>
+              <option value="no_embedding">Нет вектора</option>
+            </select></label
+          ><label class="check"
+            ><input type="checkbox" id="independent" />Другой проход
+            подтверждён</label
+          >
+        </div>
+        <div id="counts" class="summary"></div>
+        <p id="independentStatus" class="warning"></p>
+        <div class="nav">
+          <button
+            id="prev"
+            class="icon"
+            title="Предыдущее наблюдение"
+            aria-label="Предыдущее наблюдение"
+          >
+            ‹</button
+          ><span id="position"></span
+          ><button
+            id="next"
+            class="icon"
+            title="Следующее наблюдение"
+            aria-label="Следующее наблюдение"
+          >
+            ›</button
+          ><label class="check"
+            ><input id="exact" type="checkbox" />Точный кадр</label
+          >
+        </div>
+        <div id="empty" class="empty" hidden>
+          Наблюдений с этим результатом нет
+        </div>
+        <div id="testPanel" class="split">
+          <div>
+            <div class="preview">
+              <video id="video" controls playsinline preload="metadata"></video
+              ><img id="frame" alt="Проверочный кадр" hidden />
+              <div class="overlay" id="testBox"></div>
+              <div id="liveBoxes"></div>
+            </div>
+            <p id="testMeta" class="meta"></p>
+            <p id="mediaError" class="warning" hidden>
+              Видео недоступно. Открыт точный кадр.
+            </p>
+          </div>
+          <aside>
+            <div class="pair">
+              <div>
+                <img id="probe" alt="Проверяемое лицо" />
+                <p>Проверяемый кадр</p>
+              </div>
+              <div>
+                <img
+                  id="matchedRef"
+                  alt="Эталон предположительного совпадения"
+                />
+                <p id="matchedCaption"></p>
+              </div>
+            </div>
+            <div id="prediction" class="result"></div>
+            <label>Кто на проверочном кадре?<select id="truth"></select></label>
+            <p class="meta muted">Личность не подтверждена моделью.</p>
+          </aside>
+        </div>
+      </section>
+      <section>
+        <h2>3. Ручная проверка</h2>
+        <div id="metrics" class="summary"></div>
+        <div id="storageError" class="warning" hidden>
+          Оценки не сохранены браузером. Экспортируйте сессию.
+        </div>
+        <button id="export">Скачать сессию JSON</button>
+      </section>
+      <section>
+        <details>
+          <summary>Условия и ограничения</summary>
+          <p id="method"></p>
+          <p>
+            Начальный Тест-01 — один автоматически выбранный кадр, не
+            установленная личность. Другие кадры не объединяются с ним
+            автоматически. Один человек должен иметь один тестовый ID.
+            Добавление эталона к существующему ID требует ручного подтверждения.
+          </p>
+          <p>
+            Весь исходный ролик эталонов исключён из проверки. Разные камеры
+            могут показывать один проход: независимость подтверждается вручную.
+            Подбор эталонов после просмотра результатов превращает эти записи в
+            настроечную выборку; итоговую точность надо проверять на новых
+            проходах.
+          </p>
+          <p>
+            Сопоставление использует максимальное сходство с эталонами человека.
+            Если порог превышен для нескольких ID, результат считается
+            неоднозначным. Порог не понижается. Маленькие лица, которые прежний
+            анализ исключил, в тест не входят. Подсчёт ведётся по наблюдениям,
+            не по уникальным людям или проходам.
+          </p>
+          <p>
+            Плавность видео не измеряет скорость живого распознавания: векторы
+            рассчитаны заранее. Модель и выбор центрального лица — контрольный
+            вариант 320. База, реальные имена, API и рабочие камеры не
+            используются. Снимки и векторы остаются биометрическими данными даже
+            под условными именами.
+          </p>
+        </details>
+      </section>
+    </main>
+    <footer>
+      Локальный эксперимент. Изменения не применены к рабочей системе. Отчёт
+      содержит изображения и биометрические векторы.
+    </footer>
+    <script id="report-data" type="application/json">
+      __REPORT_JSON__
+    </script>
+    <script>
+      "use strict";
+      const R = JSON.parse(document.getElementById("report-data").textContent),
+        $ = (id) => document.getElementById(id);
+      const rows = new Map(R.observations.map((r) => [r.id, r])),
+        states = {},
+        results = new Map();
+      const names = {
+        matched: "Совпадение",
+        unknown: "Неизвестен",
+        no_embedding: "Нет вектора",
+        no_gallery: "Нет эталонов",
+        ambiguous: "Неоднозначно",
+      };
+      const initial = rows.get(R.initial_reference);
+      const timelines = R.videos.map((_, vi) => {
+        const groups = new Map();
+        for (const r of R.observations.filter((r) => r.video === vi)) {
+          if (!groups.has(r.frame))
+            groups.set(r.frame, { frame: r.frame, time: r.time, rows: [] });
+          groups.get(r.frame).rows.push(r);
+        }
+        return [...groups.values()].sort((a, b) => a.time - b.time);
+      });
+      let liveKey = "";
+      let refVideo = initial?.video ?? 0,
+        state,
+        candidates = [],
+        candidate = null,
+        page = 0,
+        filtered = [],
+        position = 0,
+        current = null;
+      const label = (id) => "Тест-" + id.replace("test-", "");
+      const stamp = (t) =>
+        Math.floor(t / 60)
+          .toString()
+          .padStart(2, "0") +
+        ":" +
+        (t % 60).toFixed(2).padStart(5, "0");
+      const key = (vi) => "anonymous-face-lab:" + R.source_sha256 + ":" + vi;
+      function predict(row, profiles, sourceVideo) {
+        if (row.video === sourceVideo) return { status: "excluded" };
+        if (!row.vector) return { status: "no_embedding" };
+        const scores = [];
+        for (const p of profiles) {
+          let best = -2,
+            reference = null;
+          for (const id of p.refs) {
+            const r = rows.get(id);
+            if (!r || !r.reference_ok || r.video !== sourceVideo || !r.vector)
+              continue;
+            let score = 0;
+            for (let i = 0; i < row.vector.length; i++)
+              score += row.vector[i] * r.vector[i];
+            if (score > best) {
+              best = score;
+              reference = id;
+            }
+          }
+          if (reference) scores.push({ id: p.id, score: best, reference });
+        }
+        if (!scores.length) return { status: "no_gallery" };
+        scores.sort((a, b) => b.score - a.score);
+        if (scores[0].score <= R.threshold) return { status: "unknown" };
+        if (scores.length > 1 && scores[1].score > R.threshold)
+          return { status: "ambiguous" };
+        return {
+          status: "matched",
+          person: scores[0].id,
+          reference: scores[0].reference,
+        };
+      }
+      function validState(s, vi) {
+        if (
+          !s ||
+          !Array.isArray(s.profiles) ||
+          !Number.isInteger(s.next) ||
+          s.next < 1
+        )
+          return false;
+        const ids = new Set(),
+          used = new Set();
+        for (const p of s.profiles) {
+          if (
+            !/^test-\d+$/.test(p.id) ||
+            ids.has(p.id) ||
+            !Array.isArray(p.refs) ||
+            !p.refs.length
+          )
+            return false;
+          ids.add(p.id);
+          for (const id of p.refs) {
+            const r = rows.get(id);
+            if (!r || r.video !== vi || !r.reference_ok || used.has(id))
+              return false;
+            used.add(id);
+          }
+        }
+        if (s.profiles.some((p) => Number(p.id.slice(5)) >= s.next))
+          return false;
+        return (
+          s.truth &&
+          typeof s.truth === "object" &&
+          !Array.isArray(s.truth) &&
+          s.independent &&
+          typeof s.independent === "object" &&
+          !Array.isArray(s.independent)
+        );
+      }
+      function loadState(vi) {
+        if (states[vi]) return states[vi];
+        let saved;
+        try {
+          saved = JSON.parse(localStorage.getItem(key(vi)) || "null");
+        } catch (e) {
+          $("storageError").hidden = false;
+        }
+        if (validState(saved, vi)) return (states[vi] = saved);
+        const seed = initial?.video === vi ? initial : null;
+        return (states[vi] = {
+          profiles: seed ? [{ id: "test-01", refs: [seed.id] }] : [],
+          next: seed ? 2 : 1,
+          truth: {},
+          independent: {},
+        });
+      }
+      function persist() {
+        states[refVideo] = state;
+        try {
+          localStorage.setItem(key(refVideo), JSON.stringify(state));
+        } catch (e) {
+          $("storageError").hidden = false;
+        }
+      }
+      function option(select, value, text) {
+        const o = document.createElement("option");
+        o.value = value;
+        o.textContent = text;
+        select.append(o);
+      }
+      function setVideoOptions() {
+        const prev = $("testVideo").value;
+        $("testVideo").replaceChildren();
+        for (const [vi, v] of R.videos.entries())
+          if (vi !== refVideo) option($("testVideo"), vi, v.name);
+        if ([...$("testVideo").options].some((o) => o.value === prev))
+          $("testVideo").value = prev;
+        else {
+          const most = [...$("testVideo").options].sort(
+            (a, b) =>
+              timelines[Number(b.value)].length -
+              timelines[Number(a.value)].length,
+          )[0];
+          if (most) $("testVideo").value = most.value;
+        }
+      }
+      function changeReferenceVideo() {
+        refVideo = Number($("refVideo").value);
+        state = loadState(refVideo);
+        page = 0;
+        candidate = null;
+        $("feedback").textContent = "";
+        setVideoOptions();
+        renderCandidates();
+        refreshGallery();
+      }
+      function renderCandidates() {
+        candidates = R.observations.filter(
+          (r) => r.video === refVideo && r.reference_ok,
+        );
+        candidates.sort(
+          $("sort").value === "time"
+            ? (a, b) => a.time - b.time
+            : (a, b) =>
+                Math.min(b.box[2] - b.box[0], b.box[3] - b.box[1]) -
+                  Math.min(a.box[2] - a.box[0], a.box[3] - a.box[1]) ||
+                b.sharpness - a.sharpness,
+        );
+        page = Math.min(
+          page,
+          Math.max(0, Math.ceil(candidates.length / 12) - 1),
+        );
+        if (!candidate || candidate.video !== refVideo)
+          candidate = candidates[page * 12] || null;
+        $("candidates").replaceChildren();
+        for (const r of candidates.slice(page * 12, page * 12 + 12)) {
+          const b = document.createElement("button");
+          b.className = "candidate";
+          b.setAttribute("aria-pressed", String(candidate?.id === r.id));
+          b.title = "Выбрать кадр " + stamp(r.time);
+          const img = document.createElement("img");
+          img.src = r.image;
+          img.alt = "Кандидат в эталоны";
+          const text = document.createElement("small");
+          text.textContent =
+            stamp(r.time) +
+            " · " +
+            (r.box[2] - r.box[0]) +
+            "×" +
+            (r.box[3] - r.box[1]) +
+            " px";
+          b.append(img, text);
+          b.onclick = () => {
+            candidate = r;
+            $("feedback").textContent = "";
+            renderCandidates();
+          };
+          $("candidates").append(b);
+        }
+        $("refPage").textContent = candidates.length
+          ? "Страница " +
+            (page + 1) +
+            " / " +
+            Math.ceil(candidates.length / 12) +
+            " · " +
+            candidates.length +
+            " кадров"
+          : "Подходящих эталонов нет";
+        $("refPrev").disabled = page === 0;
+        $("refNext").disabled = (page + 1) * 12 >= candidates.length;
+        if (candidate) {
+          $("selectedRef").src = candidate.image;
+          $("refFrame").src = candidate.context;
+          $("selectedRefMeta").textContent =
+            stamp(candidate.time) + " · Кадр " + candidate.frame;
+        } else {
+          for (const id of ["selectedRef", "refFrame"])
+            $(id).removeAttribute("src");
+          $("selectedRefMeta").textContent = "";
+        }
+        updateButtons();
+        draw();
+      }
+      function updateButtons() {
+        const used =
+          candidate &&
+          state.profiles.some((p) => p.refs.includes(candidate.id));
+        $("create").disabled = !candidate || used;
+        $("add").disabled = !candidate || used || !state.profiles.length;
+        $("newName").textContent =
+          "Новый " + label("test-" + String(state.next).padStart(2, "0"));
+      }
+      function refreshGallery() {
+        liveKey = "";
+        const previous = $("profile").value;
+        $("profile").replaceChildren();
+        for (const p of state.profiles) option($("profile"), p.id, label(p.id));
+        if (state.profiles.some((p) => p.id === previous))
+          $("profile").value = previous;
+        $("references").replaceChildren();
+        for (const p of state.profiles)
+          for (const id of p.refs) {
+            const row = rows.get(id),
+              item = document.createElement("div");
+            item.className = "ref";
+            const img = document.createElement("img");
+            img.src = row.image;
+            img.alt = label(p.id);
+            const text = document.createElement("span");
+            text.textContent = label(p.id) + " · " + stamp(row.time);
+            const remove = document.createElement("button");
+            remove.className = "icon";
+            remove.textContent = "×";
+            remove.title = "Удалить этот эталон";
+            remove.setAttribute("aria-label", remove.title);
+            remove.onclick = () => {
+              archiveReviews();
+              p.refs = p.refs.filter((x) => x !== id);
+              state.profiles = state.profiles.filter((x) => x.refs.length);
+              persist();
+              refreshGallery();
+            };
+            item.append(img, text, remove);
+            $("references").append(item);
+          }
+        $("referenceStatus").textContent =
+          state.profiles.length +
+          " тестовых ID · " +
+          state.profiles.reduce((n, p) => n + p.refs.length, 0) +
+          " эталонов · исходный ролик полностью исключён из проверки";
+        updateButtons();
+        results.clear();
+        for (const r of R.observations)
+          if (r.video !== refVideo)
+            results.set(r.id, predict(r, state.profiles, refVideo));
+        applyFilter();
+        metrics();
+      }
+      function createPerson() {
+        if ($("create").disabled) return;
+        const near = predict(
+          { ...candidate, video: -1 },
+          state.profiles,
+          refVideo,
+        );
+        if (
+          near.status === "matched" &&
+          !confirm(
+            "Кадр похож на " +
+              label(near.person) +
+              ". Создать отдельный ID? Это должен быть другой человек.",
+          )
+        )
+          return;
+        if (
+          near.status === "ambiguous" &&
+          !confirm(
+            "Кадр похож на несколько тестовых ID. Это действительно другой человек?",
+          )
+        )
+          return;
+        archiveReviews();
+        const id = "test-" + String(state.next++).padStart(2, "0");
+        state.profiles.push({ id, refs: [candidate.id] });
+        persist();
+        refreshGallery();
+        $("profile").value = id;
+        $("feedback").textContent = label(id) + " создан";
+      }
+      function addReference() {
+        if ($("add").disabled) return;
+        const p = state.profiles.find((p) => p.id === $("profile").value);
+        if (!p) return;
+        if (
+          !confirm(
+            "Подтверждаете, что это тот же человек, что " + label(p.id) + "?",
+          )
+        )
+          return;
+        archiveReviews();
+        p.refs.push(candidate.id);
+        persist();
+        refreshGallery();
+        $("feedback").textContent = "Эталон добавлен к " + label(p.id);
+      }
+      function archiveReviews() {
+        if (!Object.keys(state.truth).length) return;
+        state.history = state.history || [];
+        state.history.push(
+          JSON.parse(
+            JSON.stringify({
+              at: new Date().toISOString(),
+              profiles: state.profiles,
+              truth: state.truth,
+              independent: state.independent,
+            }),
+          ),
+        );
+        state.truth = {};
+      }
+      function applyFilter() {
+        const vi = Number($("testVideo").value),
+          filter = $("filter").value;
+        const eligible = R.observations.filter(
+          (r) => r.video === vi && r.video !== refVideo,
+        );
+        filtered = eligible.filter(
+          (r) => filter === "all" || results.get(r.id)?.status === filter,
+        );
+        position = 0;
+        const counts = {};
+        for (const r of eligible) {
+          const s = results.get(r.id).status;
+          counts[s] = (counts[s] || 0) + 1;
+        }
+        $("counts").textContent =
+          "Проверено: " +
+          eligible.length +
+          " · Совпадений: " +
+          (counts.matched || 0) +
+          " · Неизвестных: " +
+          (counts.unknown || 0) +
+          " · Неоднозначных: " +
+          (counts.ambiguous || 0) +
+          " · Нет вектора: " +
+          (counts.no_embedding || 0) +
+          (counts.no_gallery ? " · Нет эталонов: " + counts.no_gallery : "");
+        $("independent").checked = state.independent[vi] === true;
+        $("independentStatus").textContent =
+          state.independent[vi] === true
+            ? "Другой проход подтверждён вручную. Имена пока являются предположениями."
+            : "Независимость прохода не подтверждена. Это поисковый эксперимент, не оценка точности.";
+        show();
+      }
+      function show() {
+        $("video").pause();
+        current = filtered[position] || null;
+        $("empty").hidden = !!current;
+        $("testPanel").hidden = !current;
+        $("prev").disabled = position === 0;
+        $("next").disabled = position >= filtered.length - 1;
+        $("position").textContent = filtered.length
+          ? position + 1 + " / " + filtered.length
+          : "0 / 0";
+        if (!current) return;
+        const r = current,
+          v = R.videos[r.video],
+          p = results.get(r.id);
+        $("probe").src = r.image;
+        $("frame").src = r.context;
+        $("testMeta").textContent =
+          stamp(r.time) + " · Кадр " + r.frame + " · " + r.id;
+        $("prediction").className = "result " + p.status;
+        $("prediction").textContent = p.person
+          ? label(p.person) + "?"
+          : names[p.status];
+        $("matchedRef").hidden = !p.reference;
+        if (p.reference) $("matchedRef").src = rows.get(p.reference).image;
+        else $("matchedRef").removeAttribute("src");
+        $("matchedCaption").textContent = p.reference
+          ? "Эталон " + label(p.person)
+          : "Совпавшего эталона нет";
+        $("truth").replaceChildren();
+        option($("truth"), "", "Не проверено");
+        option($("truth"), "outside", "Другой человек / нет в эталонах");
+        option($("truth"), "unclear", "Неясно");
+        for (const person of state.profiles)
+          option($("truth"), person.id, label(person.id));
+        $("truth").value = state.truth[r.id] || "";
+        if ($("truth").selectedIndex < 0) $("truth").value = "";
+        $("mediaError").hidden = true;
+        if ($("video").getAttribute("src") !== v.video)
+          $("video").src = v.video;
+        try {
+          $("video").currentTime = r.time;
+        } catch (e) {}
+        media();
+      }
+      function metrics() {
+        let reviewed = 0,
+          unconfirmed = 0,
+          correct = 0,
+          wrongName = 0,
+          falsePositive = 0,
+          missed = 0,
+          correctReject = 0,
+          unclear = 0;
+        const valid = new Set(state.profiles.map((p) => p.id));
+        for (const r of R.observations) {
+          if (r.video === refVideo) continue;
+          const truth = state.truth[r.id],
+            p = results.get(r.id);
+          if (!truth) continue;
+          if (truth === "unclear") {
+            unclear++;
+            continue;
+          }
+          if (truth !== "outside" && !valid.has(truth)) continue;
+          if (state.independent[r.video] !== true) {
+            unconfirmed++;
+            continue;
+          }
+          reviewed++;
+          if (truth === "outside") {
+            if (p.status === "matched") falsePositive++;
+            else correctReject++;
+          } else if (p.status === "matched") {
+            if (p.person === truth) correct++;
+            else wrongName++;
+          } else missed++;
+        }
+        $("metrics").textContent =
+          "Подтверждённые другие проходы · размечено наблюдений: " +
+          reviewed +
+          " · Верное имя: " +
+          correct +
+          " · Чужое имя: " +
+          wrongName +
+          " · Ложное совпадение для постороннего: " +
+          falsePositive +
+          " · Пропуск известного: " +
+          missed +
+          " · Без ложного имени для постороннего: " +
+          correctReject +
+          ". Неясно: " +
+          unclear +
+          ". Оценок без подтверждения другого прохода: " +
+          unconfirmed +
+          ". Предыдущих версий разметки в экспорте: " +
+          (state.history || []).length +
+          ".";
+      }
+      function media() {
+        if (!current) return;
+        const exact = $("exact").checked;
+        $("video").hidden = exact;
+        $("frame").hidden = !exact;
+        draw();
+      }
+      function rectangle(node, row, show) {
+        if (!row || !show) {
+          node.style.display = "none";
+          return;
+        }
+        const v = R.videos[row.video],
+          parent = node.parentElement,
+          w = parent.clientWidth,
+          h = parent.clientHeight,
+          s = Math.min(w / v.width, h / v.height),
+          ox = (w - v.width * s) / 2,
+          oy = (h - v.height * s) / 2;
+        const [a, b, c, d] = row.box;
+        Object.assign(node.style, {
+          display: w && h ? "block" : "none",
+          left: ox + a * s + "px",
+          top: oy + b * s + "px",
+          width: (c - a) * s + "px",
+          height: (d - b) * s + "px",
+        });
+      }
+      function draw() {
+        rectangle($("refBox"), candidate, true);
+        rectangle($("testBox"), current, $("exact").checked);
+        if (!current || $("exact").checked) {
+          $("liveBoxes").replaceChildren();
+          liveKey = "";
+          return;
+        }
+        const timeline = timelines[current.video],
+          time = $("video").currentTime;
+        let lo = 0,
+          hi = timeline.length;
+        while (lo < hi) {
+          const mid = (lo + hi) >> 1;
+          if (timeline[mid].time < time) lo = mid + 1;
+          else hi = mid;
+        }
+        const nearest = [timeline[lo - 1], timeline[lo]]
+          .filter(Boolean)
+          .sort((a, b) => Math.abs(a.time - time) - Math.abs(b.time - time))[0];
+        const group =
+          nearest && Math.abs(nearest.time - time) <= 0.12 ? nearest : null;
+        const layer = $("liveBoxes"),
+          w = layer.parentElement.clientWidth,
+          h = layer.parentElement.clientHeight;
+        const nextKey = [current.video, group?.frame, w, h].join(":");
+        if (nextKey === liveKey) return;
+        liveKey = nextKey;
+        layer.replaceChildren();
+        const v = R.videos[current.video],
+          s = Math.min(w / v.width, h / v.height),
+          ox = (w - v.width * s) / 2,
+          oy = (h - v.height * s) / 2;
+        for (const row of group?.rows || []) {
+          const p = results.get(row.id),
+            [a, b, c, d] = row.box,
+            node = document.createElement("div");
+          node.className = "liveBox " + p.status;
+          Object.assign(node.style, {
+            left: ox + a * s + "px",
+            top: oy + b * s + "px",
+            width: (c - a) * s + "px",
+            height: (d - b) * s + "px",
+          });
+          const text = document.createElement("span");
+          text.textContent = p.person ? label(p.person) + "?" : names[p.status];
+          if (oy + b * s < 25) {
+            text.style.bottom = "auto";
+            text.style.top = "100%";
+          }
+          if (ox + a * s > w - 140) {
+            text.style.left = "auto";
+            text.style.right = "-2px";
+          }
+          node.append(text);
+          layer.append(node);
+        }
+      }
+      for (const [i, v] of R.videos.entries()) option($("refVideo"), i, v.name);
+      $("refVideo").value = refVideo;
+      $("refVideo").onchange = changeReferenceVideo;
+      $("sort").onchange = () => {
+        page = 0;
+        renderCandidates();
+      };
+      $("refPrev").onclick = () => {
+        page--;
+        candidate = null;
+        renderCandidates();
+      };
+      $("refNext").onclick = () => {
+        page++;
+        candidate = null;
+        renderCandidates();
+      };
+      $("profile").onchange = updateButtons;
+      $("create").onclick = createPerson;
+      $("add").onclick = addReference;
+      for (const id of ["testVideo", "filter"]) $(id).onchange = applyFilter;
+      $("prev").onclick = () => {
+        if (position > 0) {
+          position--;
+          show();
+        }
+      };
+      $("next").onclick = () => {
+        if (position < filtered.length - 1) {
+          position++;
+          show();
+        }
+      };
+      $("truth").onchange = () => {
+        if (current) {
+          state.truth[current.id] = $("truth").value;
+          persist();
+          metrics();
+        }
+      };
+      $("independent").onchange = () => {
+        state.independent[Number($("testVideo").value)] =
+          $("independent").checked;
+        persist();
+        applyFilter();
+        metrics();
+      };
+      $("exact").onchange = () => {
+        $("video").pause();
+        media();
+      };
+      $("video").onloadedmetadata = () => {
+        if (current) $("video").currentTime = current.time;
+        draw();
+      };
+      for (const event of ["timeupdate", "seeked", "seeking"])
+        $("video").addEventListener(event, draw);
+      if ("requestVideoFrameCallback" in $("video")) {
+        const tick = () => {
+          draw();
+          $("video").requestVideoFrameCallback(tick);
+        };
+        $("video").requestVideoFrameCallback(tick);
+      }
+      $("video").onerror = () => {
+        if (current) {
+          $("exact").checked = true;
+          $("mediaError").hidden = false;
+          media();
+        }
+      };
+      window.addEventListener("resize", draw);
+      $("export").onclick = () => {
+        persist();
+        const sessions = {};
+        for (let vi = 0; vi < R.videos.length; vi++) {
+          let s = states[vi];
+          if (!s) {
+            try {
+              const stored = JSON.parse(
+                localStorage.getItem(key(vi)) || "null",
+              );
+              if (validState(stored, vi)) s = stored;
+            } catch (e) {}
+          }
+          if (s) sessions[vi] = s;
+        }
+        const data = {
+          version: 1,
+          source_sha256: R.source_sha256,
+          report_created_at: R.created_at,
+          threshold: R.threshold,
+          exported_at: new Date().toISOString(),
+          sessions,
+        };
+        const url = URL.createObjectURL(
+          new Blob([JSON.stringify(data, null, 2)], {
+            type: "application/json",
+          }),
+        );
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "anonymous-face-session.json";
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      };
+      $("runState").textContent =
+        (R.complete ? "Подготовлено" : "Неполный расчёт") +
+        " · " +
+        R.observations.length +
+        " наблюдений";
+      $("method").textContent =
+        "FaceID 320 · фиксированный порог " +
+        R.threshold +
+        " · анализ " +
+        R.sample_fps +
+        " кадров/с · " +
+        R.skipped_small +
+        " маленьких лиц исключено. Эталоны: минимум 64 исходных пикселя, одно обнаруженное лицо, без обрезания краем кадра. Автоматическая проверка не гарантирует качество эталона.";
+      window.AnonymousLab = { predict, validState };
+      changeReferenceVideo();
+    </script>
+  </body>
+</html>

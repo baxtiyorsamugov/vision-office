@@ -190,6 +190,43 @@ the report or clearing browser storage. There is no production apply button.
 Checks: `python -m unittest discover -s tests -p test_faceid_lab.py` and
 `node tests/faceid_lab.cjs` (jsdom available through NODE_PATH).
 
+### Pseudonymous video-reference experiment
+
+`tools/anonymous_face_lab.py` builds a separate, portable report from a completed
+FaceID lab and original recordings. It recalculates normalized 320-baseline vectors
+on original pixels and copies exact-frame images/browser clips into a new directory.
+It does not read the live gallery, connect to a database or send events. The output
+allowlist drops catalog names, catalog IDs and real-gallery predictions.
+
+```powershell
+.\.venv\Scripts\python.exe tools/anonymous_face_lab.py --source-report data/exports/faceid-lab-20261015/results.json --input video --output data/exports/anonymous-face-lab-20261015 --device cuda
+```
+
+The first `Test-01` is one size-ranked, single-face candidate, chosen without consulting
+held-out scores. It is not a verified identity or cluster. Additional IDs and multiple
+references per ID require manual selection; adding to an ID asks for confirmation.
+References require one detected face, a usable vector, >=64px minimum side and no
+frame-edge clipping. These are heuristics, not guarantees of image quality. Probes
+retain the original >=48px gate. Some reference people may not occur in other clips.
+
+Every reference comes from ONE selected recording, excluded entirely from matching
+and metrics. The browser takes maximum similarity per identity, using the original
+EduSchool threshold. Multiple IDs above threshold yield an ambiguous result.
+Changing the reference-source recording opens a separate saved session.
+
+Manual labels distinguish known test IDs, outsiders and uncertainty. Metrics only
+count labels on clips the user confirms show a different passage; other clips can be
+alternate views of the same passage. Changing references archives previous labels
+in the JSON session export and starts fresh labels for that gallery. Sessions use
+localStorage: export before clearing browser storage or moving the report.
+Repeated observations are not independent people. Selecting references after looking
+at results makes these clips a tuning set: final validation needs unseen passages.
+
+Smooth playback uses precomputed vectors and does not measure live FPS. Pseudonyms
+do not anonymize images/vectors: outputs are sensitive and Git-ignored. No automatic
+real-name mapping or production deployment is included. Tests:
+`test_anonymous_face_lab.py` and `tests/anonymous_face_lab.cjs` (jsdom in NODE_PATH).
+
 ### Shared measurement limits
 
 - Sampling defaults to 5 frames per second with YOLO image size 960. Frame positions
