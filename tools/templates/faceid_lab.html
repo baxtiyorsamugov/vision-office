@@ -1,0 +1,916 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Лаборатория FaceID</title>
+    <style>
+      :root {
+        font-family: Arial, sans-serif;
+        color: #213338;
+        background: #f5f7f7;
+        font-size: 14px;
+        letter-spacing: 0;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+      }
+      header,
+      main,
+      footer {
+        max-width: 1450px;
+        margin: auto;
+        padding: 22px 28px;
+      }
+      header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 1px solid #d5dfdf;
+        gap: 12px;
+      }
+      h1 {
+        font-size: 25px;
+        margin: 5px 0;
+      }
+      h2 {
+        font-size: 18px;
+        margin: 0 0 14px;
+      }
+      p {
+        line-height: 1.5;
+      }
+      .muted,
+      small {
+        color: #647479;
+      }
+      .tag {
+        color: #08795b;
+        font-weight: bold;
+      }
+      .warning {
+        color: #865709;
+      }
+      section {
+        padding: 22px 0;
+        border-bottom: 1px solid #d5dfdf;
+      }
+      .scroll {
+        overflow: auto;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        font-size: 13px;
+        white-space: nowrap;
+      }
+      th,
+      td {
+        text-align: right;
+        padding: 11px 12px;
+        border-bottom: 1px solid #dce4e4;
+      }
+      th:first-child,
+      td:first-child {
+        text-align: left;
+      }
+      th {
+        background: #e6efee;
+        font-weight: 600;
+      }
+      button,
+      select,
+      input {
+        font: inherit;
+        border: 1px solid #c5d2d1;
+        background: white;
+        border-radius: 5px;
+        min-height: 38px;
+        padding: 8px 10px;
+        color: inherit;
+      }
+      button {
+        cursor: pointer;
+      }
+      button:hover {
+        border-color: #08795b;
+      }
+      button:disabled {
+        opacity: 0.4;
+        cursor: default;
+      }
+      button.icon {
+        font-size: 22px;
+        width: 42px;
+        padding: 0;
+      }
+      input[type="checkbox"] {
+        min-height: 0;
+        accent-color: #08795b;
+      }
+      label {
+        display: grid;
+        gap: 6px;
+        font-size: 12px;
+        min-width: 0;
+      }
+      label.check {
+        display: flex;
+        align-items: center;
+        font-size: 14px;
+      }
+      select,
+      input {
+        width: 100%;
+        min-width: 0;
+      }
+      .toolbar {
+        display: grid;
+        grid-template-columns: 2fr 1fr 1.5fr;
+        gap: 14px;
+      }
+      .review {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 330px;
+        gap: 24px;
+        margin-top: 20px;
+      }
+      .stage {
+        position: relative;
+        background: #101718;
+        aspect-ratio: 16/9;
+        overflow: hidden;
+      }
+      .stage video,
+      .stage > img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+      }
+      .stage [hidden] {
+        display: none;
+      }
+      .box {
+        position: absolute;
+        border: 2px solid #24e6b1;
+        pointer-events: none;
+        display: none;
+      }
+      #overlays {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        overflow: hidden;
+      }
+      .prediction {
+        position: absolute;
+        border: 2px solid #e8be54;
+      }
+      .prediction.matched {
+        border-color: #24e6b1;
+      }
+      .prediction span {
+        position: absolute;
+        left: -2px;
+        bottom: 100%;
+        background: #152626e8;
+        color: white;
+        padding: 3px 5px;
+        font-size: 11px;
+        width: max-content;
+        max-width: 160px;
+        overflow-wrap: anywhere;
+      }
+      .crop {
+        background: #e5eaea;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 180px;
+      }
+      .crop img {
+        max-height: 240px;
+        max-width: 100%;
+        object-fit: contain;
+        image-rendering: auto;
+      }
+      .nav {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 12px 0;
+        flex-wrap: wrap;
+      }
+      .nav span {
+        flex: 1;
+      }
+      .outcomes {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 20px;
+      }
+      .outcome {
+        background: white;
+        border: 1px solid #d4dede;
+        border-radius: 6px;
+        padding: 14px;
+        overflow-wrap: anywhere;
+      }
+      .outcome h3 {
+        font-size: 14px;
+        margin: 0 0 10px;
+      }
+      .outcome .name {
+        font-size: 15px;
+        font-weight: 600;
+        min-height: 48px;
+        line-height: 1.4;
+      }
+      .matched {
+        color: #08795b;
+      }
+      .unknown {
+        color: #865709;
+      }
+      .outcome small {
+        display: block;
+        margin: 8px 0;
+        min-height: 34px;
+      }
+      .outcome label {
+        margin-top: 14px;
+      }
+      .meta {
+        font-size: 12px;
+        overflow-wrap: anywhere;
+      }
+      .empty {
+        padding: 40px;
+        text-align: center;
+      }
+      .stats {
+        margin: 12px 0;
+        font-size: 13px;
+      }
+      footer {
+        font-size: 12px;
+        line-height: 1.6;
+      }
+      summary {
+        cursor: pointer;
+        font-weight: 600;
+      }
+      details p {
+        max-width: 1000px;
+      }
+      a {
+        color: #08795b;
+      }
+      #export {
+        margin-top: 12px;
+      }
+      #storageWarning {
+        color: #9a3c25;
+      }
+      #expected {
+        margin-top: 16px;
+      }
+      .hidden {
+        display: none;
+      }
+      @media (max-width: 1000px) {
+        .review {
+          grid-template-columns: minmax(0, 1fr) 240px;
+        }
+        .outcomes {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+      @media (max-width: 650px) {
+        header,
+        main,
+        footer {
+          padding: 16px;
+        }
+        header {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+        .toolbar,
+        .review {
+          grid-template-columns: minmax(0, 1fr);
+        }
+        .outcomes {
+          grid-template-columns: minmax(0, 1fr);
+        }
+        h1 {
+          font-size: 22px;
+        }
+        .outcome .name {
+          min-height: 0;
+        }
+        .crop {
+          min-height: 100px;
+        }
+        .crop img {
+          max-height: 180px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div>
+        <span class="tag">Vision Office · Offline</span>
+        <h1>Лаборатория FaceID</h1>
+      </div>
+      <div id="state" class="muted"></div>
+    </header>
+    <main>
+      <section>
+        <h2>Сравнение на всех записях</h2>
+        <div id="scope" class="muted"></div>
+        <div class="scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Вариант</th>
+                <th>Проверено</th>
+                <th>Есть имя</th>
+                <th>Неизвестен</th>
+                <th>Нет вектора</th>
+                <th>Новые к A</th>
+                <th>Потеряны к A</th>
+                <th>Другое имя</th>
+                <th>p50, мс</th>
+                <th>p95, мс</th>
+              </tr>
+            </thead>
+            <tbody id="summary"></tbody>
+          </table>
+        </div>
+        <p class="warning">
+          Совпадения модели, не подтверждённая точность. Один человек может
+          встречаться в нескольких кадрах.
+        </p>
+      </section>
+      <section>
+        <div class="toolbar">
+          <label>Запись<select id="videoSelect"></select></label
+          ><label
+            >Наблюдения<select id="filter">
+              <option value="all">Все</option>
+              <option value="changed">Различия с A</option>
+              <option value="identity">Изменения имён</option>
+              <option value="new">Новые совпадения</option>
+              <option value="lost">Потерянные совпадения</option>
+              <option value="missing">Нет вектора в A</option>
+            </select></label
+          ><label>Имя или ID<input id="search" type="search" /></label>
+        </div>
+        <div class="nav">
+          <button
+            id="prev"
+            class="icon"
+            title="Предыдущее наблюдение"
+            aria-label="Предыдущее наблюдение"
+          >
+            ‹</button
+          ><span id="position"></span
+          ><button
+            id="next"
+            class="icon"
+            title="Следующее наблюдение"
+            aria-label="Следующее наблюдение"
+          >
+            ›</button
+          ><label class="check"
+            ><input id="exact" type="checkbox" />Точный кадр</label
+          >
+        </div>
+        <label>Алгоритм на видео<select id="playbackVariant"></select></label>
+        <div id="empty" class="empty" hidden>Наблюдений нет</div>
+        <div id="inspection">
+          <div class="review">
+            <div>
+              <div class="stage">
+                <video
+                  id="video"
+                  controls
+                  preload="metadata"
+                  playsinline
+                ></video
+                ><img id="context" alt="Исходный кадр" hidden />
+                <div class="box" id="box"></div>
+                <div id="overlays"></div>
+              </div>
+              <p id="frameMeta" class="meta muted"></p>
+              <p id="mediaError" class="warning" hidden>
+                Видео недоступно. Открыт точный кадр.
+              </p>
+            </div>
+            <aside>
+              <div class="crop">
+                <img id="crop" alt="Исходный фрагмент лица" />
+              </div>
+              <label id="expected"
+                >Ожидаемый человек<input
+                  id="truth"
+                  placeholder="Не установлен"
+                  autocomplete="off"
+              /></label>
+              <p class="meta muted" id="boxMeta"></p>
+            </aside>
+          </div>
+          <div class="outcomes" id="outcomes"></div>
+        </div>
+      </section>
+      <section>
+        <h2>Ручная проверка</h2>
+        <div id="reviewStats" class="stats"></div>
+        <div id="storageWarning" hidden>
+          Браузер не сохранил оценки. Экспортируйте их перед закрытием.
+        </div>
+        <button id="export">Скачать оценки JSON</button>
+      </section>
+      <section>
+        <details>
+          <summary>Условия эксперимента</summary>
+          <p id="method"></p>
+          <p>
+            A: текущий выбор лица по центру фрагмента, FaceID 320. B: центр
+            исходной рамки YOLO и проверка пересечения. C: вариант B; только при
+            отсутствии вектора повтор с более широким фрагментом, затем 160. D:
+            вариант B с FaceID 160. Несколько подходящих лиц отклоняются. Для
+            неизвестного лица с корректным вектором повторный поиск не
+            выполняется.
+          </p>
+          <p>
+            Задержки оценены по общим измерениям компонентов FaceID и
+            сопоставления. Это не FPS всей системы: захват, YOLO, очереди и
+            запись событий сюда не входят. Видео служит контекстом; результат
+            относится к указанному кадру. Обработка выполнялась на оригинальных
+            пикселях, видео предпросмотра уменьшено.
+          </p>
+          <p>
+            Трекинг, подтверждение по нескольким кадрам и многокадровые эталоны
+            здесь не тестируются. База, API, рабочие камеры и настройки системы
+            не изменяются. Повторный проход FaceID по тем же пикселям не
+            является независимым подтверждением личности.
+          </p>
+        </details>
+      </section>
+    </main>
+    <footer>
+      Экспериментальный отчёт. Не применён к рабочей системе. Содержит
+      персональные данные.
+    </footer>
+    <script id="report-data" type="application/json">
+      __REPORT_JSON__
+    </script>
+    <script>
+      "use strict";
+      const report = JSON.parse(
+        document.getElementById("report-data").textContent,
+      );
+      const $ = (id) => document.getElementById(id);
+      const variants = report.variants;
+      for (const v of variants) {
+        const option = document.createElement("option");
+        option.value = v.id;
+        option.textContent = v.name;
+        $("playbackVariant").append(option);
+      }
+      const timelines = report.videos.map((_, vi) => {
+        const grouped = new Map();
+        for (const row of report.observations.filter((r) => r.video === vi)) {
+          if (!grouped.has(row.frame))
+            grouped.set(row.frame, {
+              time: row.time,
+              frame: row.frame,
+              rows: [],
+            });
+          grouped.get(row.frame).rows.push(row);
+        }
+        return [...grouped.values()].sort((a, b) => a.time - b.time);
+      });
+      let overlayKey = "";
+      const statusNames = {
+        matched: "Совпадение",
+        unknown: "Неизвестен",
+        no_embedding: "Нет вектора",
+        no_gallery: "Нет эталонов",
+      };
+      const reasons = {
+        usable: "Вектор получен",
+        no_detection: "FaceID не нашёл лицо",
+        center_miss: "Лицо вне целевой точки",
+        ambiguous: "Несколько лиц в целевой точке",
+        overlap_miss: "Не соответствует рамке YOLO",
+        invalid_vector: "Некорректный вектор",
+      };
+      const storageKey =
+        "faceid-lab:" +
+        report.created_at +
+        ":" +
+        report.provenance.gallery_sha256;
+      let reviews = {},
+        filtered = [],
+        index = 0,
+        current = null;
+      try {
+        reviews = JSON.parse(localStorage.getItem(storageKey) || "{}");
+        if (!reviews || typeof reviews !== "object" || Array.isArray(reviews))
+          reviews = {};
+      } catch (e) {
+        $("storageWarning").hidden = false;
+      }
+      function cell(row, value) {
+        const td = document.createElement("td");
+        td.textContent = value;
+        row.append(td);
+      }
+      for (const s of report.summary) {
+        const tr = document.createElement("tr");
+        [
+          s.name,
+          s.count,
+          s.counts.matched || 0,
+          s.counts.unknown || 0,
+          s.counts.no_embedding || 0,
+          s.new || 0,
+          s.lost || 0,
+          s.identity_changed || 0,
+          s.latency?.p50 ?? "—",
+          s.latency?.p95 ?? "—",
+        ].forEach((x) => cell(tr, x));
+        $("summary").append(tr);
+      }
+      $("state").textContent =
+        (report.complete ? "Расчёт завершён" : "Неполный расчёт") +
+        " · " +
+        report.device.toUpperCase();
+      $("scope").textContent =
+        report.videos.length +
+        " записи · " +
+        report.observations.length +
+        " наблюдений · " +
+        report.skipped_small +
+        " слишком маленьких лиц исключено";
+      $("method").textContent =
+        "Одинаковые рамки YOLO, " +
+        report.sample_fps +
+        " кадров/с анализа. Минимальная сторона лица: 48 исходных пикселей. Эталонов: " +
+        report.gallery.references +
+        ". Порог EduSchool: " +
+        report.eduschool_threshold +
+        "; локальный: " +
+        report.threshold +
+        ". Пороги не понижались.";
+      for (const [i, v] of report.videos.entries()) {
+        const option = document.createElement("option");
+        option.value = i;
+        option.textContent = v.name;
+        $("videoSelect").append(option);
+      }
+      function differs(a, b) {
+        return a.status !== b.status || a.person_id !== b.person_id;
+      }
+      function applyFilters() {
+        const vi = Number($("videoSelect").value),
+          mode = $("filter").value,
+          q = $("search").value.trim().toLocaleLowerCase();
+        filtered = report.observations.filter((r) => {
+          if (r.video !== vi) return false;
+          const a = r.outcomes.base,
+            others = variants
+              .filter((v) => v.id !== "base")
+              .map((v) => r.outcomes[v.id]);
+          if (mode === "changed" && !others.some((b) => differs(a, b)))
+            return false;
+          if (
+            mode === "identity" &&
+            !others.some(
+              (b) =>
+                differs(a, b) &&
+                (a.status === "matched" || b.status === "matched"),
+            )
+          )
+            return false;
+          if (
+            mode === "new" &&
+            !others.some(
+              (b) => b.status === "matched" && a.status !== "matched",
+            )
+          )
+            return false;
+          if (
+            mode === "lost" &&
+            !(
+              a.status === "matched" &&
+              others.some((b) => b.status !== "matched")
+            )
+          )
+            return false;
+          if (mode === "missing" && a.status !== "no_embedding") return false;
+          return (
+            !q ||
+            Object.values(r.outcomes).some((o) =>
+              ((o.name || "") + " " + (o.person_id || ""))
+                .toLocaleLowerCase()
+                .includes(q),
+            )
+          );
+        });
+        index = 0;
+        show();
+      }
+      function stamp(t) {
+        return (
+          Math.floor(t / 60)
+            .toString()
+            .padStart(2, "0") +
+          ":" +
+          (t % 60).toFixed(2).padStart(5, "0")
+        );
+      }
+      function remember() {
+        try {
+          localStorage.setItem(storageKey, JSON.stringify(reviews));
+        } catch (e) {
+          $("storageWarning").hidden = false;
+        }
+        reviewStats();
+      }
+      function reviewStats() {
+        const counts = { correct: 0, wrong: 0, unclear: 0 };
+        let labelled = 0;
+        for (const row of report.observations) {
+          const saved = reviews[row.id];
+          if (!saved) continue;
+          for (const v of variants) {
+            const mark = saved[v.id];
+            if (Object.hasOwn(counts, mark)) {
+              counts[mark]++;
+              labelled++;
+            }
+          }
+        }
+        $("reviewStats").textContent =
+          "Верно: " +
+          counts.correct +
+          " · Ошибка: " +
+          counts.wrong +
+          " · Неясно: " +
+          counts.unclear +
+          " · Проверено решений: " +
+          labelled +
+          " из " +
+          report.observations.length * variants.length;
+      }
+      function show() {
+        current = filtered[index] || null;
+        $("empty").hidden = !!current;
+        $("inspection").hidden = !current;
+        $("prev").disabled = index === 0;
+        $("next").disabled = index >= filtered.length - 1;
+        $("position").textContent = filtered.length
+          ? index + 1 + " / " + filtered.length
+          : "0 / 0";
+        $("video").pause();
+        if (!current) {
+          $("box").style.display = "none";
+          return;
+        }
+        const r = current,
+          v = report.videos[r.video];
+        $("context").src = r.context;
+        $("crop").src = r.image;
+        $("truth").value = reviews[r.id]?.truth || "";
+        $("frameMeta").textContent =
+          stamp(r.time) +
+          " · Кадр " +
+          r.frame +
+          " · " +
+          v.width +
+          " × " +
+          v.height;
+        $("boxMeta").textContent =
+          "Лицо: " +
+          (r.box[2] - r.box[0]) +
+          " × " +
+          (r.box[3] - r.box[1]) +
+          " px · ID наблюдения " +
+          r.id;
+        $("mediaError").hidden = true;
+        if (v.video && $("video").getAttribute("src") !== v.video)
+          $("video").src = v.video;
+        if (!v.video) $("video").removeAttribute("src");
+        try {
+          $("video").currentTime = r.time;
+        } catch (e) {}
+        $("outcomes").replaceChildren();
+        for (const variant of variants) {
+          const o = r.outcomes[variant.id],
+            card = document.createElement("article");
+          card.className = "outcome";
+          const h = document.createElement("h3");
+          h.textContent = variant.name;
+          const name = document.createElement("div");
+          name.className = "name " + o.status;
+          name.textContent = o.name || statusNames[o.status] || o.status;
+          const detail = document.createElement("small");
+          detail.textContent =
+            (reasons[o.reason] || o.reason) + " · " + o.ms.toFixed(1) + " мс";
+          const id = document.createElement("div");
+          id.className = "meta muted";
+          id.textContent = o.person_id || "—";
+          const label = document.createElement("label");
+          label.textContent = "Оценка результата";
+          const select = document.createElement("select");
+          select.dataset.variant = variant.id;
+          for (const [value, text] of [
+            ["", "Не проверено"],
+            ["correct", "Верно"],
+            ["wrong", "Ошибка"],
+            ["unclear", "Неясно"],
+          ]) {
+            const option = document.createElement("option");
+            option.value = value;
+            option.textContent = text;
+            select.append(option);
+          }
+          select.value = reviews[r.id]?.[variant.id] || "";
+          select.onchange = () => {
+            reviews[r.id] = { ...reviews[r.id], [variant.id]: select.value };
+            remember();
+          };
+          label.append(select);
+          card.append(h, name, detail, id, label);
+          $("outcomes").append(card);
+        }
+        updateMedia();
+      }
+      function updateMedia() {
+        if (!current) return;
+        const exact = $("exact").checked || !report.videos[current.video].video;
+        $("video").hidden = exact;
+        $("context").hidden = !exact;
+        drawBox();
+      }
+      function drawBox() {
+        const box = $("box");
+        if (!current) {
+          box.style.display = "none";
+          $("overlays").replaceChildren();
+          overlayKey = "";
+          return;
+        }
+        const exact = !$("context").hidden;
+        const v = report.videos[current.video],
+          stage = $("video").parentElement,
+          sw = stage.clientWidth,
+          sh = stage.clientHeight;
+        if (!sw || !sh) {
+          box.style.display = "none";
+          return;
+        }
+        const scale = Math.min(sw / v.width, sh / v.height),
+          ox = (sw - v.width * scale) / 2,
+          oy = (sh - v.height * scale) / 2;
+        if (!exact) {
+          box.style.display = "none";
+          const timeline = timelines[current.video],
+            time = $("video").currentTime;
+          let lo = 0,
+            hi = timeline.length;
+          while (lo < hi) {
+            const mid = (lo + hi) >> 1;
+            if (timeline[mid].time < time) lo = mid + 1;
+            else hi = mid;
+          }
+          const nearest = [timeline[lo - 1], timeline[lo]]
+            .filter(Boolean)
+            .sort(
+              (a, b) => Math.abs(a.time - time) - Math.abs(b.time - time),
+            )[0];
+          const group =
+            nearest && Math.abs(nearest.time - time) <= 0.12 ? nearest : null;
+          const variant = $("playbackVariant").value;
+          const key = [current.video, group?.frame, variant, sw, sh].join(":");
+          if (key === overlayKey) return;
+          overlayKey = key;
+          $("overlays").replaceChildren();
+          for (const row of group?.rows || []) {
+            const o = row.outcomes[variant],
+              [a, b, c, d] = row.box;
+            const node = document.createElement("div");
+            node.className = "prediction " + o.status;
+            Object.assign(node.style, {
+              left: ox + a * scale + "px",
+              top: oy + b * scale + "px",
+              width: (c - a) * scale + "px",
+              height: (d - b) * scale + "px",
+            });
+            const label = document.createElement("span");
+            label.textContent = o.name || statusNames[o.status];
+            if (oy + b * scale < 40) {
+              label.style.bottom = "auto";
+              label.style.top = "100%";
+            }
+            if (ox + a * scale > sw - 160) {
+              label.style.left = "auto";
+              label.style.right = "-2px";
+            }
+            node.append(label);
+            $("overlays").append(node);
+          }
+          return;
+        }
+        $("overlays").replaceChildren();
+        overlayKey = "";
+        const [a, b, c, d] = current.box;
+        Object.assign(box.style, {
+          display: "block",
+          left: ox + a * scale + "px",
+          top: oy + b * scale + "px",
+          width: (c - a) * scale + "px",
+          height: (d - b) * scale + "px",
+        });
+      }
+      $("prev").onclick = () => {
+        if (index > 0) {
+          index--;
+          show();
+        }
+      };
+      $("next").onclick = () => {
+        if (index < filtered.length - 1) {
+          index++;
+          show();
+        }
+      };
+      for (const id of ["videoSelect", "filter"]) $(id).onchange = applyFilters;
+      $("playbackVariant").onchange = drawBox;
+      $("search").oninput = applyFilters;
+      $("exact").onchange = () => {
+        $("video").pause();
+        updateMedia();
+      };
+      $("truth").oninput = () => {
+        if (current) {
+          reviews[current.id] = {
+            ...reviews[current.id],
+            truth: $("truth").value,
+          };
+          remember();
+        }
+      };
+      $("video").addEventListener("loadedmetadata", () => {
+        if (current) $("video").currentTime = current.time;
+        drawBox();
+      });
+      for (const name of ["timeupdate", "seeked", "seeking"])
+        $("video").addEventListener(name, drawBox);
+      if ("requestVideoFrameCallback" in $("video")) {
+        const tick = () => {
+          drawBox();
+          $("video").requestVideoFrameCallback(tick);
+        };
+        $("video").requestVideoFrameCallback(tick);
+      }
+      $("video").onerror = () => {
+        if (current) {
+          $("mediaError").hidden = false;
+          $("exact").checked = true;
+          updateMedia();
+        }
+      };
+      window.addEventListener("resize", drawBox);
+      $("export").onclick = () => {
+        const payload = {
+          report_created_at: report.created_at,
+          provenance: report.provenance,
+          exported_at: new Date().toISOString(),
+          reviews,
+        };
+        const url = URL.createObjectURL(
+          new Blob([JSON.stringify(payload, null, 2)], {
+            type: "application/json",
+          }),
+        );
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "faceid-manual-review.json";
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      };
+      reviewStats();
+      applyFilters();
+    </script>
+  </body>
+</html>

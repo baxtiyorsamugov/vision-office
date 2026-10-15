@@ -148,7 +148,49 @@ enrollment script, not the live worker. Ensure GPU memory headroom first. A fail
 CUDA initialization can fall back to CPU, recorded in the result. Refresh the gallery
 snapshot and generate a new video report after enrollment; old reports remain unchanged.
 
-### Measurement limits
+### Isolated FaceID lab
+
+`tools/faceid_lab.py` compares four FaceID strategies on the same original video
+pixels, frozen YOLO boxes and gallery snapshot. It does not open the database,
+run camera workers, enroll photos or send attendance. Use a NEW output directory.
+
+```powershell
+.\.venv\Scripts\python.exe tools/faceid_lab.py --source-report data/exports/video-review-students-20261012/results.json --gallery data/exports/offline-gallery-students-20261012.json --input video --output data/exports/faceid-lab-20261015 --device cuda
+```
+
+- A: existing 320 detector and crop-center face selection.
+- B: original YOLO-box center, with minimum 0.25 IoU to reject unrelated faces.
+- C: B, then wider crop at 320 only when no usable embedding exists; if that fails,
+  try the original crop at 160. A valid unknown identity does not trigger retries.
+- D: target-aware selection at 160, inspired by the older SmartOffice configuration.
+
+The 48-original-pixel minimum and matching thresholds stay unchanged. The lab
+rejects ambiguous candidates, checks source dimensions/FPS/frame counts and records
+SHA256 of inputs/models. It requires the matching gallery snapshot timestamp.
+Counts are observations, not people or accuracy. Costs share measured inference
+components across variants; they are not independently measured live pipeline FPS.
+No tracker, scheduler, cooldown, multi-frame confirmation or delivery is simulated.
+
+Optional browser media is transcoded separately, preserving decoded frame count
+and the frame-index/FPS analysis timeline. The UI image supports ffmpeg:
+
+```powershell
+docker compose run --rm --no-deps --entrypoint python -v "${PWD}:/analysis:ro" -v "${PWD}/video:/recordings:ro" ui /analysis/tools/faceid_lab.py --prepare-media --source-report /analysis/data/exports/video-review-students-20261012/results.json --input /recordings --output /app/data/exports/faceid-lab-media-20261015 --ffmpeg /usr/bin/ffmpeg
+.\.venv\Scripts\python.exe tools/faceid_lab.py --attach-media --output data/exports/faceid-lab-20261015 --preview-dir data/exports/faceid-lab-media-20261015
+```
+
+Open the generated `index.html`. Native video playback is independent of inference.
+Video overlays use the selected algorithm and observations within 120 ms; labels
+are predictions, not tracking. Exact-frame cards remain tied to the selected
+observation, even while the context video plays. Manual correct/wrong/unclear marks
+and an optional expected identity are stored in browser localStorage and can be
+exported as JSON. File-URL storage behavior varies by browser; export before moving
+the report or clearing browser storage. There is no production apply button.
+
+Checks: `python -m unittest discover -s tests -p test_faceid_lab.py` and
+`node tests/faceid_lab.cjs` (jsdom available through NODE_PATH).
+
+### Shared measurement limits
 
 - Sampling defaults to 5 frames per second with YOLO image size 960. Frame positions
   use frame index / declared source FPS; variable-rate or discontinuous footage needs
