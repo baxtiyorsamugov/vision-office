@@ -227,6 +227,35 @@ do not anonymize images/vectors: outputs are sensitive and Git-ignored. No autom
 real-name mapping or production deployment is included. Tests:
 `test_anonymous_face_lab.py` and `tests/anonymous_face_lab.cjs` (jsdom in NODE_PATH).
 
+### Replay of user-assigned test IDs
+
+`tools/check_test_identities.py` imports an exported anonymous session without
+changing it. It checks the source fingerprint, timestamp, threshold, vector shapes,
+reference ownership and ID uniqueness, then evaluates every nonempty gallery
+separately. Equal ID numbers in different galleries do not mean the same person.
+
+```powershell
+.\.venv\Scripts\python.exe tools/check_test_identities.py --source-report data/exports/anonymous-face-lab-20261015/results.json --session C:/Users/baxti/Downloads/anonymous-face-session.json --output data/exports/test-identities-20261015 --gap-seconds 2
+```
+
+Unlike the cross-recording lab, this diagnostic also evaluates the original clip.
+ALL observations within +/-2 seconds of ANY reference timestamp in that gallery's
+source clip are excluded, including other faces in those frames. Dense enrollment
+can therefore leave very little test footage. The exact-reference self-check is
+reported separately, never included in match counts. Remaining observations may
+still be from the same passage: this is repeatability diagnostics, not independent
+identity accuracy. Unknown people and missed detections have no ground truth here.
+
+Scores use frozen 320 vectors and the unchanged threshold. Multiple above-threshold
+IDs are ambiguous, not forced to the highest-scoring ID. Counts are face observations.
+The new standalone viewer opens the gallery with most predicted matches for inspection,
+provides per-ID and per-video counts, synchronized playback, exact frames, reference
+pairs, manual same/different/unclear labels and JSON export. Video playback does not
+measure live processing FPS. It does not change enrollment, production settings or API.
+
+Tests: `test_test_identities.py` and `tests/test_identity_review.cjs`; the JS test
+also accepts a generated `index.html` path to check real assets and exclusion windows.
+
 ### Shared measurement limits
 
 - Sampling defaults to 5 frames per second with YOLO image size 960. Frame positions

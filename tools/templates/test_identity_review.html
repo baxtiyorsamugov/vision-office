@@ -1,0 +1,766 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Проверка тестовых ID</title>
+    <style>
+      :root {
+        font:
+          14px Arial,
+          sans-serif;
+        color: #233b3c;
+        background: #f5f8f7;
+        letter-spacing: 0;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+      }
+      header,
+      main,
+      footer {
+        max-width: 1440px;
+        margin: auto;
+        padding: 22px 28px;
+      }
+      header {
+        border-bottom: 1px solid #d4dfdd;
+      }
+      h1 {
+        font-size: 26px;
+        margin: 7px 0;
+      }
+      h2 {
+        font-size: 18px;
+        margin: 0 0 14px;
+      }
+      p,
+      details {
+        line-height: 1.6;
+      }
+      .brand,
+      .matched {
+        color: #087957;
+      }
+      .muted {
+        color: #657977;
+      }
+      .warning,
+      .unknown,
+      .ambiguous {
+        color: #885b09;
+      }
+      section {
+        padding: 22px 0;
+        border-bottom: 1px solid #d4dfdd;
+      }
+      .toolbar {
+        display: grid;
+        grid-template-columns: 2fr 2fr 1fr 1fr;
+        gap: 14px;
+      }
+      label {
+        display: grid;
+        gap: 6px;
+        font-size: 12px;
+        min-width: 0;
+      }
+      select,
+      button {
+        font: inherit;
+        min-height: 38px;
+        padding: 8px 10px;
+        border: 1px solid #bdceca;
+        border-radius: 5px;
+        background: white;
+        color: inherit;
+      }
+      select {
+        width: 100%;
+        min-width: 0;
+      }
+      button {
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.4;
+        cursor: default;
+      }
+      .icon {
+        width: 40px;
+        font-size: 22px;
+        padding: 0;
+      }
+      .nav {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        margin: 16px 0;
+      }
+      .nav span {
+        flex: 1;
+      }
+      .check {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+      }
+      .review {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 320px;
+        gap: 24px;
+      }
+      .stage {
+        position: relative;
+        aspect-ratio: 16/9;
+        background: #142323;
+        overflow: hidden;
+      }
+      .stage video,
+      .stage > img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+      }
+      #boxes {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        overflow: hidden;
+      }
+      .box {
+        position: absolute;
+        border: 2px solid #dfb34d;
+      }
+      .box.matched {
+        border-color: #24e1aa;
+      }
+      .box span {
+        position: absolute;
+        bottom: 100%;
+        left: -2px;
+        white-space: nowrap;
+        background: #16342ded;
+        color: white;
+        padding: 3px 5px;
+        font-size: 11px;
+      }
+      .pair {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+      .pair img {
+        width: 100%;
+        height: 190px;
+        object-fit: contain;
+        background: #e4ece9;
+      }
+      .pair p,
+      .meta {
+        font-size: 12px;
+        overflow-wrap: anywhere;
+      }
+      .prediction {
+        font-size: 23px;
+        margin: 16px 0;
+      }
+      .summary {
+        overflow: auto;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        font-size: 13px;
+        white-space: nowrap;
+      }
+      td,
+      th {
+        padding: 10px 12px;
+        border-bottom: 1px solid #d8e2df;
+        text-align: right;
+      }
+      td:first-child,
+      th:first-child {
+        text-align: left;
+      }
+      th {
+        background: #e6efec;
+      }
+      td img {
+        width: 38px;
+        height: 42px;
+        object-fit: contain;
+        vertical-align: middle;
+        margin-right: 10px;
+      }
+      #identities {
+        max-height: 340px;
+        overflow: auto;
+      }
+      summary {
+        cursor: pointer;
+        font-weight: bold;
+      }
+      footer {
+        font-size: 12px;
+      }
+      .empty {
+        text-align: center;
+        padding: 40px;
+        color: #657977;
+      }
+      [hidden] {
+        display: none !important;
+      }
+      @media (max-width: 1000px) {
+        .toolbar {
+          grid-template-columns: 1fr 1fr;
+        }
+        .review {
+          grid-template-columns: minmax(0, 1fr) 260px;
+        }
+      }
+      @media (max-width: 650px) {
+        header,
+        main,
+        footer {
+          padding: 16px;
+        }
+        .toolbar,
+        .review {
+          grid-template-columns: minmax(0, 1fr);
+        }
+        h1 {
+          font-size: 22px;
+        }
+        .pair img {
+          height: 150px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="brand">Vision Office · Offline</div>
+      <h1>Проверка тестовых ID</h1>
+      <div class="warning">
+        Повторное обнаружение ID, не подтверждённая точность распознавания.
+      </div>
+    </header>
+    <main>
+      <section>
+        <div class="toolbar">
+          <label>Набор эталонов<select id="gallery"></select></label
+          ><label>Проверочная запись<select id="videoSelect"></select></label
+          ><label
+            >Результат<select id="filter">
+              <option value="matched">Совпадения</option>
+              <option value="all">Все наблюдения</option>
+              <option value="unknown">Неизвестные</option>
+              <option value="ambiguous">Неоднозначные</option>
+              <option value="no_embedding">Нет вектора</option>
+              <option value="excluded">Исключённые эталоны</option>
+            </select></label
+          ><label>Тестовый ID<select id="person"></select></label>
+        </div>
+        <p class="warning" id="scope"></p>
+        <div class="summary">
+          <table>
+            <thead>
+              <tr>
+                <th>Запись</th>
+                <th>Совпадения</th>
+                <th>Неизвестные</th>
+                <th>Нет вектора</th>
+                <th>Неоднозначные</th>
+                <th>Исключены</th>
+              </tr>
+            </thead>
+            <tbody id="counts"></tbody>
+          </table>
+        </div>
+      </section>
+      <section>
+        <div class="nav">
+          <button
+            id="prev"
+            class="icon"
+            aria-label="Предыдущее наблюдение"
+            title="Предыдущее наблюдение"
+          >
+            ‹</button
+          ><span id="position"></span
+          ><button
+            id="next"
+            class="icon"
+            aria-label="Следующее наблюдение"
+            title="Следующее наблюдение"
+          >
+            ›</button
+          ><label class="check"
+            ><input id="exact" type="checkbox" />Точный кадр</label
+          >
+        </div>
+        <div id="empty" class="empty" hidden>
+          Наблюдений с выбранными условиями нет
+        </div>
+        <div class="review" id="review">
+          <div>
+            <div class="stage">
+              <video id="video" controls preload="metadata" playsinline></video
+              ><img id="frame" alt="Точный кадр" hidden />
+              <div id="boxes"></div>
+            </div>
+            <p id="frameMeta" class="meta"></p>
+            <p id="mediaError" class="warning" hidden>
+              Видео недоступно. Открыт точный кадр.
+            </p>
+          </div>
+          <aside>
+            <div class="pair">
+              <div>
+                <img id="probe" alt="Проверяемое лицо" />
+                <p>Проверяемый кадр</p>
+              </div>
+              <div>
+                <img id="reference" alt="Эталон совпадения" />
+                <p id="refMeta"></p>
+              </div>
+            </div>
+            <div id="prediction" class="prediction"></div>
+            <label
+              >Проверка пары<select id="mark">
+                <option value="">Не проверено</option>
+                <option value="correct">Один человек</option>
+                <option value="wrong">Разные люди</option>
+                <option value="unclear">Неясно</option>
+              </select></label
+            >
+          </aside>
+        </div>
+      </section>
+      <section>
+        <h2>Результат по каждому ID</h2>
+        <div id="identities">
+          <table>
+            <thead>
+              <tr>
+                <th>ID и эталон</th>
+                <th>Эталонов</th>
+                <th>Исходный ролик</th>
+                <th>Другие ролики</th>
+                <th>Неоднозначно</th>
+              </tr>
+            </thead>
+            <tbody id="people"></tbody>
+          </table>
+        </div>
+        <p class="muted" id="control"></p>
+      </section>
+      <section>
+        <h2>Ручная проверка</h2>
+        <p id="reviewStats"></p>
+        <p class="warning" id="storageError" hidden>
+          Браузер не сохранил оценки. Экспортируйте их перед закрытием.
+        </p>
+        <button id="export">Скачать оценки JSON</button>
+      </section>
+      <section>
+        <details>
+          <summary>Методика</summary>
+          <p id="method"></p>
+          <p>
+            На исходном ролике исключены все лица во всех кадрах в пределах
+            заданного интервала от любого эталона этого набора. Оставшиеся кадры
+            всё равно могут относиться к тому же проходу. Это диагностика
+            повторяемости на знакомой записи, а не независимый тест качества.
+          </p>
+          <p>
+            Порог и векторы из предыдущего стенда не менялись. Для каждого ID
+            берётся максимальное сходство с его эталонами. Несколько ID выше
+            порога дают неоднозначный результат. Одинаковый номер в разных
+            наборах не означает одного человека. Кнопки и счётчики относятся к
+            выбранному набору; видео показывает предварительно рассчитанные
+            результаты, карточка справа — выбранное наблюдение.
+          </p>
+          <p>
+            Самопроверка на точных эталонах отделена от результатов и не
+            является оценкой точности. Процент правильного распознавания без
+            подтверждённых меток не рассчитывается. Отсутствие повторных
+            совпадений не означает ошибку, если человека нет в проверочных
+            кадрах. Обычные эталоны ERP, база, камеры и отправка API не
+            затронуты.
+          </p>
+        </details>
+      </section>
+    </main>
+    <footer>
+      Локальный диагностический отчёт. Фото и видео являются персональными
+      данными.
+    </footer>
+    <script id="report-data" type="application/json">
+      __REPORT_JSON__
+    </script>
+    <script>
+      "use strict";
+      const R = JSON.parse(document.getElementById("report-data").textContent),
+        $ = (id) => document.getElementById(id),
+        rows = new Map(R.observations.map((r) => [r.id, r]));
+      const names = {
+        matched: "Совпадение",
+        unknown: "Неизвестен",
+        ambiguous: "Неоднозначно",
+        no_embedding: "Нет вектора",
+        excluded: "Окно эталона исключено",
+      };
+      const label = (id) => "Тест-" + id.replace("test-", ""),
+        stamp = (t) =>
+          Math.floor(t / 60)
+            .toString()
+            .padStart(2, "0") +
+          ":" +
+          (t % 60).toFixed(2).padStart(5, "0");
+      const storageKey =
+        "test-identity-review:" + R.session_sha256 + ":" + R.gap_seconds;
+      let gallery,
+        filtered = [],
+        index = 0,
+        current = null,
+        marks = {},
+        overlayKey = "";
+      try {
+        marks = JSON.parse(localStorage.getItem(storageKey) || "{}");
+        if (!marks || typeof marks !== "object" || Array.isArray(marks))
+          marks = {};
+      } catch (e) {
+        $("storageError").hidden = false;
+      }
+      const timelines = R.videos.map((v, vi) => {
+        const map = new Map();
+        for (const r of R.observations.filter((r) => r.video === vi)) {
+          if (!map.has(r.frame))
+            map.set(r.frame, { time: r.time, frame: r.frame, rows: [] });
+          map.get(r.frame).rows.push(r);
+        }
+        return [...map.values()].sort((a, b) => a.time - b.time);
+      });
+      function option(el, value, text) {
+        const o = document.createElement("option");
+        o.value = value;
+        o.textContent = text;
+        el.append(o);
+      }
+      function cell(tr, value) {
+        const td = document.createElement("td");
+        td.textContent = value;
+        tr.append(td);
+        return td;
+      }
+      function selectGallery() {
+        gallery = R.galleries.find((g) => g.key === $("gallery").value);
+        $("counts").replaceChildren();
+        for (const [vi, c] of gallery.counts.entries()) {
+          const tr = document.createElement("tr");
+          cell(tr, R.videos[vi].name);
+          for (const key of [
+            "matched",
+            "unknown",
+            "no_embedding",
+            "ambiguous",
+            "excluded",
+          ])
+            cell(tr, c[key] || 0);
+          $("counts").append(tr);
+        }
+        $("person").replaceChildren();
+        option($("person"), "", "Все ID");
+        $("people").replaceChildren();
+        for (const p of gallery.profiles) {
+          option($("person"), p.id, label(p.id));
+          const tr = document.createElement("tr"),
+            td = cell(tr, label(p.id)),
+            img = document.createElement("img");
+          img.src = rows.get(p.refs[0]).image;
+          img.alt = "Эталон " + label(p.id);
+          td.prepend(img);
+          for (const v of [
+            p.refs.length,
+            p.same_clip,
+            p.other_clips,
+            p.ambiguous,
+          ])
+            cell(tr, v);
+          $("people").append(tr);
+        }
+        $("videoSelect").value = gallery.source_video;
+        $("control").textContent =
+          "Техническая самопроверка на точных эталонах: " +
+          (gallery.control.exact_reference_ok || 0) +
+          " из " +
+          gallery.profiles.reduce((n, p) => n + p.refs.length, 0) +
+          " вернули свой ID. Эти кадры не включены в результат.";
+        overlayKey = "";
+        applyFilter();
+        reviewStats();
+      }
+      function applyFilter() {
+        const vi = Number($("videoSelect").value),
+          status = $("filter").value,
+          person = $("person").value;
+        filtered = R.observations.filter((r) => {
+          const o = r.outcomes[gallery.key];
+          return (
+            r.video === vi &&
+            (status === "all" || o.status === status) &&
+            (!person || o.person === person || o.candidates?.includes(person))
+          );
+        });
+        index = 0;
+        $("scope").textContent =
+          vi === gallery.source_video
+            ? "Исходный ролик: диагностическая проверка вне окон эталонов. Другой проход не подтверждён."
+            : "Другой ролик: присутствие этих людей и независимость прохода не подтверждены.";
+        show();
+      }
+      function show() {
+        current = filtered[index] || null;
+        $("video").pause();
+        $("empty").hidden = !!current;
+        $("review").hidden = !current;
+        $("prev").disabled = index === 0;
+        $("next").disabled = index >= filtered.length - 1;
+        $("position").textContent = filtered.length
+          ? index + 1 + " / " + filtered.length
+          : "0 / 0";
+        if (!current) {
+          draw();
+          return;
+        }
+        const r = current,
+          o = r.outcomes[gallery.key],
+          v = R.videos[r.video];
+        $("probe").src = r.image;
+        $("frame").src = r.context;
+        $("reference").hidden = !o.reference;
+        if (o.reference) {
+          const ref = rows.get(o.reference);
+          $("reference").src = ref.image;
+          $("refMeta").textContent = label(o.person) + " · " + stamp(ref.time);
+        } else {
+          $("reference").removeAttribute("src");
+          $("refMeta").textContent = "Однозначного совпадения нет";
+        }
+        $("prediction").className = "prediction " + o.status;
+        $("prediction").textContent = o.person
+          ? label(o.person) + "?"
+          : names[o.status];
+        $("mark").disabled = o.status !== "matched";
+        $("mark").value = marks[gallery.key + ":" + r.id] || "";
+        $("frameMeta").textContent =
+          stamp(r.time) + " · Кадр " + r.frame + " · " + r.id;
+        $("mediaError").hidden = true;
+        if ($("video").getAttribute("src") !== v.video)
+          $("video").src = v.video;
+        try {
+          $("video").currentTime = r.time;
+        } catch (e) {}
+        media();
+      }
+      function media() {
+        $("video").hidden = $("exact").checked;
+        $("frame").hidden = !$("exact").checked;
+        overlayKey = "";
+        draw();
+      }
+      function draw() {
+        const layer = $("boxes");
+        if (!current) {
+          layer.replaceChildren();
+          overlayKey = "";
+          return;
+        }
+        const exact = $("exact").checked,
+          t = $("video").currentTime,
+          ts = timelines[current.video];
+        let lo = 0,
+          hi = ts.length;
+        while (lo < hi) {
+          const mid = (lo + hi) >> 1;
+          if (ts[mid].time < t) lo = mid + 1;
+          else hi = mid;
+        }
+        const near = [ts[lo - 1], ts[lo]]
+          .filter(Boolean)
+          .sort((a, b) => Math.abs(a.time - t) - Math.abs(b.time - t))[0];
+        const group = exact
+          ? { frame: current.frame, rows: [current] }
+          : near && Math.abs(near.time - t) <= 0.12
+            ? near
+            : null;
+        const parent = layer.parentElement,
+          w = parent.clientWidth,
+          h = parent.clientHeight,
+          key = [
+            gallery.key,
+            current.video,
+            exact ? current.id : "live",
+            group?.frame,
+            w,
+            h,
+          ].join(":");
+        if (key === overlayKey) return;
+        overlayKey = key;
+        layer.replaceChildren();
+        const v = R.videos[current.video],
+          s = Math.min(w / v.width, h / v.height),
+          ox = (w - v.width * s) / 2,
+          oy = (h - v.height * s) / 2;
+        for (const r of group?.rows || []) {
+          const o = r.outcomes[gallery.key];
+          if (o.status === "excluded" && !exact) continue;
+          const [a, b, c, d] = r.box,
+            box = document.createElement("div");
+          box.className = "box " + o.status;
+          Object.assign(box.style, {
+            left: ox + a * s + "px",
+            top: oy + b * s + "px",
+            width: (c - a) * s + "px",
+            height: (d - b) * s + "px",
+          });
+          if (o.person) {
+            const text = document.createElement("span");
+            text.textContent = label(o.person) + "?";
+            if (oy + b * s < 25) {
+              text.style.bottom = "auto";
+              text.style.top = "100%";
+            }
+            if (ox + a * s > w - 110) {
+              text.style.left = "auto";
+              text.style.right = "-2px";
+            }
+            box.append(text);
+          }
+          layer.append(box);
+        }
+      }
+      function reviewStats() {
+        const c = { correct: 0, wrong: 0, unclear: 0 };
+        for (const r of R.observations) {
+          if (r.outcomes[gallery.key].status !== "matched") continue;
+          const mark = marks[gallery.key + ":" + r.id];
+          if (Object.hasOwn(c, mark)) c[mark]++;
+        }
+        $("reviewStats").textContent =
+          "Текущий набор · Один человек: " +
+          c.correct +
+          " · Разные люди: " +
+          c.wrong +
+          " · Неясно: " +
+          c.unclear +
+          ". Это оценки пар, не точность по всем проходам.";
+      }
+      for (const g of R.galleries)
+        option(
+          $("gallery"),
+          g.key,
+          R.videos[g.source_video].name + " · " + g.profiles.length + " ID",
+        );
+      for (const [vi, v] of R.videos.entries())
+        option($("videoSelect"), vi, v.name);
+      $("gallery").onchange = selectGallery;
+      for (const id of ["videoSelect", "filter", "person"])
+        $(id).onchange = applyFilter;
+      $("prev").onclick = () => {
+        if (index > 0) {
+          index--;
+          show();
+        }
+      };
+      $("next").onclick = () => {
+        if (index < filtered.length - 1) {
+          index++;
+          show();
+        }
+      };
+      $("exact").onchange = () => {
+        $("video").pause();
+        media();
+      };
+      $("video").onloadedmetadata = () => {
+        if (current) $("video").currentTime = current.time;
+        draw();
+      };
+      for (const e of ["timeupdate", "seeked", "seeking"])
+        $("video").addEventListener(e, draw);
+      if ("requestVideoFrameCallback" in $("video")) {
+        const tick = () => {
+          draw();
+          $("video").requestVideoFrameCallback(tick);
+        };
+        $("video").requestVideoFrameCallback(tick);
+      }
+      window.addEventListener("resize", () => {
+        overlayKey = "";
+        draw();
+      });
+      $("video").onerror = () => {
+        $("exact").checked = true;
+        $("mediaError").hidden = false;
+        media();
+      };
+      $("mark").onchange = () => {
+        if (!current || current.outcomes[gallery.key].status !== "matched")
+          return;
+        marks[gallery.key + ":" + current.id] = $("mark").value;
+        try {
+          localStorage.setItem(storageKey, JSON.stringify(marks));
+        } catch (e) {
+          $("storageError").hidden = false;
+        }
+        reviewStats();
+      };
+      $("export").onclick = () => {
+        const data = {
+          session_sha256: R.session_sha256,
+          source_sha256: R.source_sha256,
+          gap_seconds: R.gap_seconds,
+          threshold: R.threshold,
+          marks,
+          exported_at: new Date().toISOString(),
+        };
+        const url = URL.createObjectURL(
+            new Blob([JSON.stringify(data, null, 2)], {
+              type: "application/json",
+            }),
+          ),
+          a = document.createElement("a");
+        a.href = url;
+        a.download = "test-identity-review.json";
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      };
+      $("method").textContent =
+        "Импортированный набор: " +
+        R.galleries.reduce((n, g) => n + g.profiles.length, 0) +
+        " ID в " +
+        R.galleries.length +
+        " отдельных галереях. Порог " +
+        R.threshold +
+        ". Исключение: ±" +
+        R.gap_seconds +
+        " с около эталонов. Анализ " +
+        R.sample_fps +
+        " кадров/с; только ранее обнаруженные лица от 48 исходных пикселей. Биометрические векторы рассчитаны ранее, скорость живой камеры здесь не измеряется.";
+      $("gallery").value = [...R.galleries].sort(
+        (a, b) =>
+          b.profiles.reduce((n, p) => n + p.same_clip + p.other_clips, 0) -
+          a.profiles.reduce((n, p) => n + p.same_clip + p.other_clips, 0),
+      )[0].key;
+      selectGallery();
+    </script>
+  </body>
+</html>
