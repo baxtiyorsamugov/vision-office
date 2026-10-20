@@ -47,7 +47,7 @@ edge_integration:
   full_sync_interval_seconds: 86400
   page_size: 200
   # An operator may add up to this many approved local photos per ERP person.
-  local_reference_photo_limit: 10
+  local_reference_photo_limit: 15
   recognition_threshold: 0.55
   # Outbox delivery is independent from the hourly people synchronization.
   delivery_poll_interval_seconds: 5
@@ -65,7 +65,7 @@ eduschool_catalog:
   sync_interval_seconds: 3600
   page_size: 200
   request_timeout_seconds: 20
-  local_reference_photo_limit: 10
+  local_reference_photo_limit: 15
 
 # Opt-in staff attendance sender. Requires a separate Other-type integration key
 # in ignored .env; read-only catalog credentials cannot authorize this endpoint.

@@ -180,7 +180,7 @@ class PreparedImport:
 
 
 class CatalogTransfer:
-    def __init__(self, engine, erp_url, root=ROOT, reference_limit=10):
+    def __init__(self, engine, erp_url, root=ROOT, reference_limit=15):
         self.engine = engine
         self.erp_origin = origin(erp_url)
         self.root = Path(root).resolve()

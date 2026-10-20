@@ -35,7 +35,7 @@ class EduSchoolCatalogSettings:
     sync_interval_seconds: int = 3600
     page_size: int = 200
     request_timeout_seconds: int = 20
-    local_reference_photo_limit: int = 10
+    local_reference_photo_limit: int = 15
     recognition_threshold: float = 0.55
 
     @property

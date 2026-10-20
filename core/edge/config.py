@@ -16,7 +16,7 @@ class EdgeSettings:
     sync_interval_seconds: int = 3600
     full_sync_interval_seconds: int = 86400
     page_size: int = 200
-    local_reference_photo_limit: int = 10
+    local_reference_photo_limit: int = 15
     delivery_poll_interval_seconds: int = 5
     recognition_threshold: float = 0.40
     event_cooldown_seconds: int = 60

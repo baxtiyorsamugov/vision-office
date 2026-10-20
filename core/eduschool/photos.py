@@ -64,9 +64,11 @@ def load_recognition_embeddings(session) -> tuple[list[dict[str, str]], list[np.
 
 
 class EduSchoolPhotoService:
-    def __init__(self, engine=None, *, reference_limit: int = 10, root: Path = PROJECT_ROOT):
+    def __init__(self, engine=None, *, reference_limit: int = 15, root: Path = PROJECT_ROOT,
+                 migrate_schema: bool = True):
         self.engine = engine if engine is not None else get_engine()
-        run_migrations(self.engine)
+        if migrate_schema:
+            run_migrations(self.engine)
         self.Session = sessionmaker(bind=self.engine, expire_on_commit=False)
         self.reference_limit = max(1, min(30, int(reference_limit)))
         self.root = Path(root)
