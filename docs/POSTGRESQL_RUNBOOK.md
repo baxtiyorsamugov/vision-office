@@ -100,7 +100,7 @@ Restarting `edge-sync` after a successful import is safe: compact ERP responses 
 3. Choose an active person synchronized from ERP.
 4. Upload a clear JPG or PNG photo with one visible face.
 
-The device validates the photo, creates a 512-value embedding, saves the original locally, and adds the vector to matching. It never uploads this extra photo to ERP and never changes the ERP main photo. A camera process reloads the local cache within a few seconds. The default limit is ten active extra photos per person; change `edge_integration.local_reference_photo_limit` only when a larger set is genuinely needed.
+The device validates the photo, creates a 512-value embedding, saves the original locally, and adds the vector to matching. It never uploads this extra photo to ERP and never changes the ERP main photo. A camera process reloads the local cache within a few seconds. The default limit is fifteen active extra photos per person (`edge_integration.local_reference_photo_limit` and `eduschool_catalog.local_reference_photo_limit`, maximum 30).
 
 ## Local-Only Employees
 
