@@ -73,7 +73,9 @@ docker compose run --rm --no-deps migrate python tools/import_reviewed_photos.py
 ```
 
 Ожидается: `"mode": "dry_run"` и `"counts": {"ready": 127}`.
-Если есть `blocked` или `already_present`, остановитесь и пришлите файл
+Если `blocked` только с причиной `profile_missing_or_inactive` (человек архивирован
+в EduSchool), добавьте к обеим командам `--skip-inactive`: такие фото будут пропущены.
+При других `blocked` или `already_present` остановитесь и пришлите файл
 `data\exports\refs15-dry-run\report.json`.
 
 ### 6. Запись в БД

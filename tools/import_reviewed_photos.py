@@ -115,7 +115,7 @@ def open_engine(url, *, readonly):
     return engine
 
 
-def preflight(engine, manifest, reference_limit):
+def preflight(engine, manifest, reference_limit, skip_inactive=False):
     from sqlalchemy import inspect, select
     from sqlalchemy.orm import Session
     from database.models import EduSchoolCatalogPerson as Person, EduSchoolReferencePhoto as Photo
@@ -139,7 +139,9 @@ def preflight(engine, manifest, reference_limit):
             duplicate = existing.get((item['person_id'], item['sha256']))
             status, reason = 'ready', None
             if person is None or not person.active:
-                status, reason = 'blocked', 'profile_missing_or_inactive'
+                # An archived profile is never matched, so an operator may knowingly leave it out.
+                status = 'skipped_inactive' if skip_inactive else 'blocked'
+                reason = 'profile_missing_or_inactive'
             elif (person.person_type != item['person_type']
                   or person.id != person.person_type + ':' + person.external_id
                   or person.full_name != item['full_name']):
@@ -201,12 +203,12 @@ def write_report(path, value):
 
 
 def run_import(engine, folder, root, output, *, apply=False, reference_limit=15,
-               expected_count=None, embedding_fn=None, service_factory=None):
+               expected_count=None, embedding_fn=None, service_factory=None, skip_inactive=False):
     folder, root, output = Path(folder).resolve(), Path(root).resolve(), Path(output).resolve()
     if output.exists() or output.is_relative_to(folder):
         raise ValueError('Use a new output directory outside the input bundle')
     manifest = validate_bundle(folder, expected_count)
-    planned = preflight(engine, manifest, reference_limit)
+    planned = preflight(engine, manifest, reference_limit, skip_inactive)
     report = {'version': 1, 'mode': 'apply' if apply else 'dry_run', 'complete': False,
               'review_sha256': manifest['source_annotation_sha256'], 'started_at': datetime.now(timezone.utc).isoformat(),
               'face_processing_tested': False, 'backup': None, 'results': planned}
@@ -230,7 +232,7 @@ def run_import(engine, folder, root, output, *, apply=False, reference_limit=15,
     with lock.open('x', encoding='utf-8') as stream:
         stream.write(str(os.getpid()))
     try:
-        planned = preflight(engine, manifest, reference_limit)
+        planned = preflight(engine, manifest, reference_limit, skip_inactive)
         report['results'] = planned
         if any(r['status'] == 'blocked' for r in planned):
             report['complete'] = True
@@ -288,12 +290,14 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--expected-count', type=int, default=127)
     parser.add_argument('--apply', action='store_true')
+    parser.add_argument('--skip-inactive', action='store_true',
+                        help='Leave out photos of profiles that are missing or inactive instead of blocking')
     args = parser.parse_args()
     from database.manager import database_url
     from core.eduschool.catalog import load_settings
     engine = open_engine(database_url(), readonly=not args.apply)
     try:
-        result = run_import(engine, args.bundle, ROOT, args.output, apply=args.apply,
+        result = run_import(engine, args.bundle, ROOT, args.output, apply=args.apply, skip_inactive=args.skip_inactive,
                             expected_count=args.expected_count,
                             reference_limit=load_settings().local_reference_photo_limit)
         print(json.dumps({'mode': result['mode'], 'complete': result['complete'], 'counts': result['counts'],

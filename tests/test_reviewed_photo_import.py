@@ -119,6 +119,15 @@ class ReviewedImportTests(unittest.TestCase):
         self.assertIsNone(result['backup'])
         self.assertEqual(self.count(), 0)
 
+    def test_inactive_profile_is_skipped_only_when_requested(self):
+        with Session(self.engine) as session:
+            session.get(Person, self.pid).active = False; session.commit()
+        self.assertEqual(self.run_copy(apply=True)['counts'], {'blocked': 2})
+        result = self.run_copy(apply=True, output='skip', skip_inactive=True,
+                               embedding_fn=lambda _: self.fail('Skipped photo processed'))
+        self.assertEqual(result['counts'], {'skipped_inactive': 2})
+        self.assertEqual(self.count(), 0)
+
     def test_aggregate_limit_blocks_before_apply(self):
         result = self.run_copy(apply=True, reference_limit=1)
         self.assertEqual(result['counts'], {'ready': 1, 'blocked': 1})
