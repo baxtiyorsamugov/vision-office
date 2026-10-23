@@ -116,13 +116,11 @@ class UnknownVisitorService:
                 candidates.append((visitor, vector))
         return candidates
 
-    def _choose_visitor(self, session, embedding: np.ndarray, observed_at: datetime) -> UnknownVisitor:
-        best_visitor = None
-        best_score = -1.0
-        for visitor, candidate in self._active_candidates(session):
-            score = float(np.dot(candidate, embedding))
-            if score > best_score:
-                best_visitor, best_score = visitor, score
+    def _choose_visitor(self, session, embedding: np.ndarray, observed_at: datetime,
+                        index: "_CandidateIndex | None" = None) -> UnknownVisitor:
+        if index is None:
+            index = _CandidateIndex(self._active_candidates(session))
+        best_visitor, best_score = index.best(embedding)
         if best_visitor is not None and best_score >= self.settings.similarity_threshold:
             return best_visitor
         visitor = UnknownVisitor(
@@ -189,18 +187,21 @@ class UnknownVisitorService:
         visitor.visit_count = visits_created
         visitor.updated_at = utc_now()
 
-    def _cluster_observation(self, session, observation: UnknownFaceObservation) -> UnknownVisitor | None:
+    def _cluster_observation(self, session, observation: UnknownFaceObservation,
+                             index: "_CandidateIndex | None" = None) -> UnknownVisitor | None:
         embedding = self._embedding(observation.embedding)
         event = session.get(RecognitionEvent, observation.event_id)
         if embedding is None or event is None:
             observation.processing_status = "failed"
             observation.processing_error = "Missing event or invalid face embedding"
             return None
-        visitor = self._choose_visitor(session, embedding, observation.observed_at)
+        visitor = self._choose_visitor(session, embedding, observation.observed_at, index)
         observation.visitor_id = visitor.id
         observation.processing_status = "clustered"
         observation.processing_error = None
         self._rebuild_visitor(session, visitor)
+        if index is not None:
+            index.update(visitor, self._embedding(visitor.canonical_embedding))
         return visitor
 
     def process_pending(self, limit: int = 25) -> int:
@@ -212,8 +213,10 @@ class UnknownVisitorService:
             observations = session.query(UnknownFaceObservation).filter(
                 UnknownFaceObservation.processing_status == "pending"
             ).order_by(UnknownFaceObservation.observed_at.asc()).limit(limit).all()
+            # Load the active visitor vectors once per batch; each assignment updates them in place.
+            index = _CandidateIndex(self._active_candidates(session)) if observations else None
             for observation in observations:
-                self._cluster_observation(session, observation)
+                self._cluster_observation(session, observation, index)
                 processed += 1
             session.commit()
             return processed
@@ -423,6 +426,39 @@ class UnknownVisitorService:
             }
         finally:
             session.close()
+
+
+class _CandidateIndex:
+    """Active visitor centroids as one matrix, kept current within a clustering batch."""
+
+    def __init__(self, candidates: list[tuple[UnknownVisitor, np.ndarray]]):
+        self.visitors = [visitor for visitor, _vector in candidates]
+        self.rows = {id(visitor): row for row, visitor in enumerate(self.visitors)}
+        self.matrix = (np.vstack([vector for _visitor, vector in candidates]).astype(np.float32)
+                       if candidates else np.empty((0, 512), dtype=np.float32))
+        self.usable = np.ones(len(self.visitors), dtype=bool)
+
+    def best(self, embedding: np.ndarray) -> tuple[UnknownVisitor | None, float]:
+        if not self.usable.any():
+            return None, -1.0
+        scores = np.where(self.usable, self.matrix @ np.asarray(embedding, dtype=np.float32), -np.inf)
+        row = int(np.argmax(scores))
+        return self.visitors[row], float(scores[row])
+
+    def update(self, visitor: UnknownVisitor, vector: np.ndarray | None) -> None:
+        row = self.rows.get(id(visitor))
+        usable = vector is not None and visitor.state == "active"
+        if row is None:
+            if not usable:
+                return
+            self.rows[id(visitor)] = len(self.visitors)
+            self.visitors.append(visitor)
+            self.matrix = np.vstack([self.matrix, np.asarray(vector, dtype=np.float32)[None, :]])
+            self.usable = np.append(self.usable, True)
+            return
+        self.usable[row] = usable
+        if usable:
+            self.matrix[row] = vector
 
 
 def _write_status(payload: dict) -> None:

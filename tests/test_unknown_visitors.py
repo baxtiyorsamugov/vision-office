@@ -59,6 +59,20 @@ class UnknownVisitorTests(unittest.TestCase):
         finally:
             session.close()
 
+    def test_batch_loads_visitor_vectors_once_and_tracks_new_visitors(self):
+        for hint, index in (("unknown:one", 0), ("unknown:two", 1), ("unknown:three", 0), ("unknown:four", 1)):
+            self._record_unknown(hint, self._vector(index))
+        with patch.object(UnknownVisitorService, "_active_candidates", autospec=True,
+                          side_effect=UnknownVisitorService._active_candidates) as loader:
+            self.assertEqual(self.service.process_pending(), 4)
+        self.assertEqual(loader.call_count, 1)
+        session = sessionmaker(bind=self.engine)()
+        try:
+            counts = sorted(item.observation_count for item in session.query(UnknownVisitor).filter_by(state="active"))
+            self.assertEqual(counts, [2, 2])
+        finally:
+            session.close()
+
     def test_visit_window_counts_one_arrival_for_repeated_observations(self):
         first = self._record_unknown("unknown:one", self._vector(0))
         second = self._record_unknown("unknown:two", self._vector(0))
