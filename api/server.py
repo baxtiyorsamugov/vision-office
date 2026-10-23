@@ -239,7 +239,11 @@ card.innerHTML='<div class="camera-head"><div><div class="name"></div><div class
 function update(camera){let card=cards.get(camera.camera_id);if(!card){card=build(camera);cards.set(camera.camera_id,card);root.querySelector('.empty')?.remove();root.appendChild(card)}
 card.querySelector('.name').textContent=camera.camera_name||camera.camera_id;card.querySelector('.meta').textContent='Захват '+(camera.capture_fps??0)+' FPS · Детекция '+(camera.detection_fps??0)+' FPS';
 const online=camera.running&&camera.stream_status==='connected';card.querySelector('.state').classList.toggle('online',online);card.querySelector('.state-text').textContent=online?'В сети':'Переподключение';
-const image=card.querySelector('img');image.src='/api/v1/cameras/'+encodeURIComponent(camera.camera_id)+'/preview.jpg?t='+Date.now()}
+if(card.loading)return;card.loading=true;
+// Decode the next frame off-screen and swap it in only when complete, so a slow or failed request never blanks the tile.
+const next=new Image();next.className='frame';next.alt='Кадр камеры';
+next.onload=()=>{card.querySelector('img').replaceWith(next);card.loading=false};next.onerror=()=>{card.loading=false};
+next.src='/api/v1/cameras/'+encodeURIComponent(camera.camera_id)+'/preview.jpg?t='+Date.now()}
 async function refresh(){try{const response=await fetch('/api/v1/monitor/status',{cache:'no-store'});if(!response.ok)throw new Error();const data=await response.json();const ids=new Set((data.cameras||[]).map(camera=>camera.camera_id));for(const [id,card] of cards){if(!ids.has(id)){card.remove();cards.delete(id)}}
 if(!ids.size&&!root.querySelector('.empty'))root.innerHTML='<div class="empty">Нет активных камер или их статус ещё не опубликован.</div>';(data.cameras||[]).forEach(update)}catch(_error){}finally{setTimeout(refresh,250)}}refresh();
 </script></body></html>"""
