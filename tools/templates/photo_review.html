@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; img-src 'self' file: data:; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <title>Vision Office · Проверка фотографий</title>
+    <style>
+      __STYLE__
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <div class="brand">
+          VISION OFFICE <span class="badge">Локальная копия</span>
+        </div>
+        <h1>Проверка фотографий</h1>
+      </div>
+      <div class="file-actions">
+        <button
+          id="undo"
+          class="icon"
+          title="Отменить последнее решение"
+          aria-label="Отменить последнее решение"
+        >
+          <img src="icons/undo-2.svg" alt="" />
+        </button>
+        <button id="importButton">
+          <img src="icons/upload.svg" alt="" />Импорт разметки
+        </button>
+        <button
+          id="backupButton"
+          disabled
+          title="Скачать исходную сохранённую разметку"
+        >
+          <img src="icons/download.svg" alt="" />Резервная копия
+        </button>
+        <button id="exportButton" class="primary">
+          <img src="icons/download.svg" alt="" />Экспорт разметки
+        </button>
+        <input
+          type="file"
+          id="importFile"
+          accept=".json,application/json"
+          hidden
+        />
+      </div>
+    </header>
+    <main>
+      <div class="review-mode">
+        <label
+          >Режим проверки<select id="reviewMode">
+            <option value="journal">Имена из журнала</option>
+            <option value="manual">Ручной выбор человека</option>
+          </select></label
+        >
+        <span id="journalCount" class="muted"></span>
+      </div>
+      <div class="summary">
+        <span id="datasetStats"></span
+        ><span id="saveState" role="status"></span>
+      </div>
+      <div class="notice">
+        <span id="missingInfo"></span><span>Рабочая база: без изменений</span>
+      </div>
+      <p id="error" class="error" role="alert" hidden></p>
+      <nav id="tabs" class="tabs" aria-label="Статус проверки">
+        <button data-status="unreviewed" aria-pressed="true">
+          Не проверено <b></b>
+        </button>
+        <button data-status="confirmed" aria-pressed="false">
+          Подтверждено <b></b>
+        </button>
+        <button data-status="unsure" aria-pressed="false">
+          Спорно <b></b>
+        </button>
+        <button data-status="rejected" aria-pressed="false">
+          Отклонено <b></b>
+        </button>
+        <button data-status="all" aria-pressed="false">Все <b></b></button>
+      </nav>
+      <section class="filters" aria-label="Фильтры кадров">
+        <label
+          >Камера<select id="camera">
+            <option value="">Все камеры</option>
+          </select></label
+        >
+        <label
+          >Дата<select id="date">
+            <option value="">Все даты</option>
+          </select></label
+        >
+        <label
+          >Запись системы<select id="source">
+            <option value="">Все</option>
+            <option value="unknown">Неизвестные</option>
+            <option value="known">С именем, не проверено</option>
+          </select></label
+        >
+        <label
+          >Размер снимка<select id="size">
+            <option value="">Любой</option>
+            <option value="112">От 112 px по короткой стороне</option>
+            <option value="80">От 80 px по короткой стороне</option>
+            <option value="small">Меньше 80 px</option>
+          </select></label
+        >
+        <label
+          >Порядок<select id="sort">
+            <option value="newest">Сначала новые</option>
+            <option value="oldest">Сначала старые</option>
+            <option value="largest">Сначала крупные снимки</option>
+            <option value="similar">Сначала самые похожие на базу</option>
+          </select></label
+        >
+      </section>
+      <div class="workspace">
+        <section class="queue" aria-label="Кадры камеры">
+          <div class="section-head">
+            <h2>Кадры</h2>
+            <span id="resultCount" class="muted"></span>
+          </div>
+          <div id="queue" class="photo-grid"></div>
+          <p id="empty" class="empty" hidden>Нет кадров с такими фильтрами.</p>
+          <div class="pager">
+            <button
+              id="prevPage"
+              class="icon"
+              title="Предыдущая страница"
+              aria-label="Предыдущая страница"
+            >
+              <img src="icons/chevron-left.svg" alt="" /></button
+            ><span id="pageInfo"></span
+            ><button
+              id="nextPage"
+              class="icon"
+              title="Следующая страница"
+              aria-label="Следующая страница"
+            >
+              <img src="icons/chevron-right.svg" alt="" />
+            </button>
+          </div>
+        </section>
+        <section class="inspector" aria-label="Проверка выбранного кадра">
+          <div class="section-head">
+            <h2>Проверка</h2>
+            <div class="frame-nav">
+              <button
+                id="prevFrame"
+                class="icon"
+                title="Предыдущий кадр"
+                aria-label="Предыдущий кадр"
+              >
+                <img src="icons/chevron-left.svg" alt="" /></button
+              ><button
+                id="nextFrame"
+                class="icon"
+                title="Следующий кадр"
+                aria-label="Следующий кадр"
+              >
+                <img src="icons/chevron-right.svg" alt="" />
+              </button>
+            </div>
+          </div>
+          <p id="noSelection" class="empty">Кадр не выбран.</p>
+          <div id="inspection" hidden>
+            <div class="comparison">
+              <div class="capture">
+                <div class="section-head">
+                  <h3>Снимок камеры</h3>
+                  <button
+                    id="zoom"
+                    class="icon"
+                    title="Увеличить снимок"
+                    aria-label="Увеличить снимок"
+                  >
+                    <img src="icons/zoom-in.svg" alt="" />
+                  </button>
+                </div>
+                <div class="capture-image">
+                  <img id="frameImage" alt="Выбранный снимок камеры" />
+                </div>
+                <p id="frameMeta"></p>
+                <p id="prediction" class="unverified"></p>
+                <p id="currentDecision" class="muted"></p>
+              </div>
+              <section class="person-pane" aria-label="Человек и эталон">
+                <div id="personPicker">
+                  <h3>Человек</h3>
+                  <label class="search"
+                    >Поиск по ФИО или ID<input
+                      id="personSearch"
+                      type="search"
+                      autocomplete="off"
+                      placeholder="ФИО или ID"
+                  /></label>
+                  <div class="person-filters">
+                    <select id="personCategory" aria-label="Категория человека">
+                      <option value="">Все категории</option>
+                      <option value="employee">Сотрудники</option>
+                      <option value="student">Студенты</option></select
+                    ><label class="check"
+                      ><input id="inactive" type="checkbox" />Неактивные</label
+                    >
+                  </div>
+                  <div
+                    id="people"
+                    class="people"
+                    role="listbox"
+                    aria-label="Каталог людей"
+                  ></div>
+                  <button id="morePeople" class="more" hidden>
+                    Показать ещё
+                  </button>
+                </div>
+                <div class="person-selected">
+                  <section
+                    id="nameCandidateSection"
+                    hidden
+                    aria-label="Совпадения ФИО в новом ERP"
+                  >
+                    <div class="section-head">
+                      <h3>Совпадения ФИО в новом ERP</h3>
+                      <span id="nameCandidateCount" class="muted"></span>
+                    </div>
+                    <div
+                      id="nameCandidates"
+                      class="name-candidates"
+                      role="listbox"
+                      aria-label="Кандидаты по тексту ФИО"
+                    ></div>
+                    <p id="noNameCandidates" class="muted" hidden>
+                      Совпадений по ФИО не найдено.
+                    </p>
+                  </section>
+                  <div id="journalReference" hidden>
+                    <div class="section-head">
+                      <h3 id="referenceHeading">Эталон по ID из журнала</h3>
+                      <button
+                        id="zoomReference"
+                        class="icon"
+                        title="Увеличить эталон"
+                        aria-label="Увеличить эталон"
+                      >
+                        <img src="icons/zoom-in.svg" alt="" />
+                      </button>
+                    </div>
+                    <div class="capture-image">
+                      <img
+                        id="referenceImage"
+                        alt="Эталон из карточки, указанной в журнале"
+                      />
+                    </div>
+                    <p id="journalWarning" class="unverified"></p>
+                  </div>
+                  <h3 id="personName">Человек не выбран</h3>
+                  <p id="personId" class="muted"></p>
+                  <div id="references" class="references"></div>
+                  <p id="noReferences" class="muted" hidden>
+                    В этой копии нет активных эталонов.
+                  </p>
+                </div>
+              </section>
+            </div>
+            <div class="decision-bar">
+              <h3 id="journalQuestion" hidden>
+                На кадре человек, указанный в журнале?
+              </h3>
+              <label class="check verify"
+                ><input id="verified" type="checkbox" /><span id="verifyLabel"
+                  >Личность и пригодность снимка подтверждаю</span
+                ></label
+              >
+              <div class="decision-actions">
+                <button id="confirm" class="primary" disabled>
+                  <img src="icons/check.svg" alt="" /><span id="confirmLabel"
+                    >Подтвердить фото</span
+                  >
+                </button>
+                <button id="unsure">
+                  <img src="icons/circle-help.svg" alt="" /><span
+                    id="unsureLabel"
+                    >Спорно</span
+                  >
+                </button>
+                <select id="rejectReason" aria-label="Причина отклонения">
+                  <option value="quality">Низкое качество</option>
+                  <option value="occluded">Лицо закрыто</option>
+                  <option value="no_face">Нет подходящего лица</option>
+                  <option value="duplicate">Лишний снимок</option>
+                  <option value="other">Другая причина</option>
+                </select>
+                <button id="reject">
+                  <img src="icons/x.svg" alt="" /><span id="rejectLabel"
+                    >Отклонить</span
+                  >
+                </button>
+                <button
+                  id="reset"
+                  class="icon"
+                  title="Вернуть кадр в непроверенные"
+                  aria-label="Вернуть кадр в непроверенные"
+                >
+                  <img src="icons/rotate-ccw.svg" alt="" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+      <footer>
+        <span id="confirmedPeople"></span
+        ><span
+          >Тестовая галерея: ещё не создана · В рабочую систему не
+          применено</span
+        >
+      </footer>
+    </main>
+    <dialog id="lightbox">
+      <button id="closeZoom" class="icon" title="Закрыть" aria-label="Закрыть">
+        <img src="icons/x.svg" alt="" /></button
+      ><img id="largeImage" alt="Увеличенный снимок" />
+      <p id="zoomCaption"></p>
+    </dialog>
+    <script id="report" type="application/json">
+      __REPORT_JSON__
+    </script>
+    <script>
+      __SCRIPT__;
+    </script>
+  </body>
+</html>
