@@ -115,7 +115,7 @@ def open_engine(url, *, readonly):
     return engine
 
 
-def preflight(engine, manifest, reference_limit, skip_inactive=False):
+def preflight(engine, manifest, reference_limit, skip_inactive=False, skip_over_limit=False):
     from sqlalchemy import inspect, select
     from sqlalchemy.orm import Session
     from database.models import EduSchoolCatalogPerson as Person, EduSchoolReferencePhoto as Photo
@@ -151,7 +151,9 @@ def preflight(engine, manifest, reference_limit, skip_inactive=False):
             elif checksum_owners.get(item['sha256'], set()) - {item['person_id']}:
                 status, reason = 'blocked', 'same_file_assigned_to_other_profile'
             elif local_counts[item['person_id']] >= reference_limit:
-                status, reason = 'blocked', 'local_reference_limit'
+                # Manifest order decides which photos fit; the rest are left out only on request.
+                status = 'skipped_limit' if skip_over_limit else 'blocked'
+                reason = 'local_reference_limit'
             else:
                 local_counts[item['person_id']] += 1
             results.append({'event_id': item['event_id'], 'person_id': item['person_id'],
@@ -203,12 +205,13 @@ def write_report(path, value):
 
 
 def run_import(engine, folder, root, output, *, apply=False, reference_limit=15,
-               expected_count=None, embedding_fn=None, service_factory=None, skip_inactive=False):
+               expected_count=None, embedding_fn=None, service_factory=None, skip_inactive=False,
+               skip_over_limit=False):
     folder, root, output = Path(folder).resolve(), Path(root).resolve(), Path(output).resolve()
     if output.exists() or output.is_relative_to(folder):
         raise ValueError('Use a new output directory outside the input bundle')
     manifest = validate_bundle(folder, expected_count)
-    planned = preflight(engine, manifest, reference_limit, skip_inactive)
+    planned = preflight(engine, manifest, reference_limit, skip_inactive, skip_over_limit)
     report = {'version': 1, 'mode': 'apply' if apply else 'dry_run', 'complete': False,
               'review_sha256': manifest['source_annotation_sha256'], 'started_at': datetime.now(timezone.utc).isoformat(),
               'face_processing_tested': False, 'backup': None, 'results': planned}
@@ -232,7 +235,7 @@ def run_import(engine, folder, root, output, *, apply=False, reference_limit=15,
     with lock.open('x', encoding='utf-8') as stream:
         stream.write(str(os.getpid()))
     try:
-        planned = preflight(engine, manifest, reference_limit, skip_inactive)
+        planned = preflight(engine, manifest, reference_limit, skip_inactive, skip_over_limit)
         report['results'] = planned
         if any(r['status'] == 'blocked' for r in planned):
             report['complete'] = True
@@ -292,12 +295,15 @@ def main():
     parser.add_argument('--apply', action='store_true')
     parser.add_argument('--skip-inactive', action='store_true',
                         help='Leave out photos of profiles that are missing or inactive instead of blocking')
+    parser.add_argument('--skip-over-limit', action='store_true',
+                        help='Import photos in manifest order up to the per-person limit and leave out the rest')
     args = parser.parse_args()
     from database.manager import database_url
     from core.eduschool.catalog import load_settings
     engine = open_engine(database_url(), readonly=not args.apply)
     try:
         result = run_import(engine, args.bundle, ROOT, args.output, apply=args.apply, skip_inactive=args.skip_inactive,
+                            skip_over_limit=args.skip_over_limit,
                             expected_count=args.expected_count,
                             reference_limit=load_settings().local_reference_photo_limit)
         print(json.dumps({'mode': result['mode'], 'complete': result['complete'], 'counts': result['counts'],

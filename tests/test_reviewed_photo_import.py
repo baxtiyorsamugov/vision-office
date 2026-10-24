@@ -128,6 +128,13 @@ class ReviewedImportTests(unittest.TestCase):
         self.assertEqual(result['counts'], {'skipped_inactive': 2})
         self.assertEqual(self.count(), 0)
 
+    def test_over_limit_photos_are_skipped_in_manifest_order_only_when_requested(self):
+        self.assertEqual(self.run_copy(reference_limit=1)['counts'], {'ready': 1, 'blocked': 1})
+        result = self.run_copy(apply=True, output='skip', reference_limit=1, skip_over_limit=True,
+                               embedding_fn=lambda _: np.ones(512))
+        self.assertEqual([r['status'] for r in result['results']], ['imported', 'skipped_limit'])
+        self.assertEqual(self.count(), 1)
+
     def test_aggregate_limit_blocks_before_apply(self):
         result = self.run_copy(apply=True, reference_limit=1)
         self.assertEqual(result['counts'], {'ready': 1, 'blocked': 1})

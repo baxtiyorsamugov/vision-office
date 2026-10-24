@@ -9,6 +9,7 @@ import argparse
 from datetime import datetime, timezone
 import hashlib
 import json
+import re
 from pathlib import Path
 import shutil
 import sys
@@ -16,6 +17,31 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from tools.import_reviewed_photos import read_json, validate_bundle  # noqa: E402
+
+
+def spread_order(items: list[dict]) -> list[dict]:
+    """Order each person's photos so the first ones cover the most different moments.
+
+    The importer fills the per-person limit in manifest order, so frames from separate
+    visits come before near-duplicates from the same pass through the turnstile.
+    """
+    by_person: dict[str, list[dict]] = {}
+    for item in items:
+        by_person.setdefault(item["person_id"], []).append(item)
+    ordered = []
+    for person_items in by_person.values():
+        moment = {id(item): datetime.fromisoformat(re.sub(r"\.\d+", "", item["event_at"]).replace("Z", "+00:00")).timestamp()
+                  for item in person_items}
+        size = lambda item: min(item["width"], item["height"])  # noqa: E731
+        remaining = sorted(person_items, key=lambda item: (-size(item), item["event_id"]))
+        picked = [remaining.pop(0)]
+        while remaining:
+            gap = lambda item: min(abs(moment[id(item)] - moment[id(other)]) for other in picked)  # noqa: E731
+            best = max(remaining, key=lambda item: (gap(item), size(item)))
+            remaining.remove(best)
+            picked.append(best)
+        ordered.extend(picked)
+    return ordered
 
 
 def build(review: Path, decisions_file: Path, output: Path) -> dict:
@@ -47,6 +73,7 @@ def build(review: Path, decisions_file: Path, output: Path) -> dict:
         })
     if not items:
         raise ValueError("No confirmed reference photos in the decision file")
+    items = spread_order(items)
     (output / "photos").mkdir(parents=True)
     for item in items:
         shutil.copy2(review / "media" / f"{item['sha256']}.jpg", output / item["image"])
