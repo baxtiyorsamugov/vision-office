@@ -99,6 +99,9 @@ health:
   # Telegram hears about a failure only after it lasts this long, and about recovery after it holds.
   alert_after_seconds: 90
   recover_after_seconds: 30
+  # Optional outside watchdog (e.g. a Healthchecks.io ping URL). Pinged every heartbeat_interval_seconds;
+  # the watchdog alerts when pings stop (PC off, internet lost, worker stopped).
+  ping_url: ""
   telegram_enabled: false
   telegram_bot_token: "REPLACE_ON_DEVICE_ONLY"
   telegram_chat_ids: []

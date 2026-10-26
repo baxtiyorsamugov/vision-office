@@ -16,7 +16,7 @@ from core.config import ConfigurationError, load_app_settings
 from core.edge.config import EdgeSettings
 from core.events import RecognitionEventStore
 import core.logging_setup as logging_setup
-from core.health import HealthChecker, HealthSettings
+from core.health import HealthChecker, HealthSettings, load_health_settings
 from core.hr import HRManager
 from core.local_time import local_day_bounds_utc, to_local
 from core.ai.engine import _load_known_faces, detector_model_path
@@ -271,6 +271,29 @@ class PlatformTests(unittest.TestCase):
         check(250, "ok")
         self.assertEqual(len(sent), 2)
         self.assertTrue(sent[1].startswith("Vision Office recovered:"))
+
+    def test_watchdog_ping_is_https_only_and_once_per_interval(self):
+        self.assertEqual(HealthSettings().ping_url, "")
+        config = Path(self.tempdir.name) / "settings.yaml"
+        config.write_text("health:\n  ping_url: http://hc-ping.com/abc\n", encoding="utf-8")
+        self.assertEqual(load_health_settings(config).ping_url, "")
+        config.write_text("health:\n  ping_url: https://hc-ping.com/abc\n", encoding="utf-8")
+        settings = load_health_settings(config)
+        self.assertEqual(settings.ping_url, "https://hc-ping.com/abc")
+        checker = HealthChecker(settings, EdgeSettings(), engine=self.engine)
+        clock = [1000.0]
+        checker._clock = lambda: clock[0]
+        with patch("core.health.urlopen") as opened:
+            checker._ping_watchdog()
+            clock[0] += 30
+            checker._ping_watchdog()
+            clock[0] += 31
+            checker._ping_watchdog()
+        self.assertEqual(opened.call_count, 2)
+        self.assertEqual(opened.call_args[0][0].full_url, "https://hc-ping.com/abc")
+        with patch("core.health.urlopen", side_effect=OSError("offline")):
+            clock[0] += 60
+            checker._ping_watchdog()
 
     def test_health_checker_flags_stale_configured_camera_and_ignores_test_artifact(self):
         checker = HealthChecker(HealthSettings(camera_stale_seconds=15), EdgeSettings(), engine=self.engine)

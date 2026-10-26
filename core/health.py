@@ -47,6 +47,9 @@ class HealthSettings:
     # so short RTSP drops and worker restarts do not produce alert/recovered pairs.
     alert_after_seconds: int = 90
     recover_after_seconds: int = 30
+    # Dead-man's switch: an outside service (e.g. Healthchecks.io) alerts when these pings stop,
+    # which covers a powered-off PC, lost internet or a stopped worker that cannot report itself.
+    ping_url: str = ""
 
     @property
     def telegram_configured(self) -> bool:
@@ -74,7 +77,16 @@ def load_health_settings(path: str | Path = "config/settings.yaml") -> HealthSet
         camera_stale_seconds=max(3, int(values.get("camera_stale_seconds", defaults.camera_stale_seconds))),
         alert_after_seconds=max(0, int(values.get("alert_after_seconds", defaults.alert_after_seconds))),
         recover_after_seconds=max(0, int(values.get("recover_after_seconds", defaults.recover_after_seconds))),
+        ping_url=_ping_url(values.get("ping_url")),
     )
+
+
+def _ping_url(value) -> str:
+    url = str(value or "").strip()
+    if url and not url.startswith("https://"):
+        logger.warning("health.ping_url ignored: only https:// URLs are allowed")
+        return ""
+    return url
 
 
 class HealthChecker:
@@ -89,6 +101,7 @@ class HealthChecker:
         self.healthy_since: dict[str, float] = {}
         self._clock = time.monotonic
         self.last_heartbeat_at = 0.0
+        self.last_ping_at: float | None = None
         self.last_cleanup_at = 0.0
         self.edge_service = EdgeService(edge_settings, engine=self.engine) if edge_settings.configured else None
 
@@ -269,6 +282,20 @@ class HealthChecker:
                 session.close()
         return sent
 
+    def _ping_watchdog(self) -> None:
+        """Tell the outside watchdog this device is alive. Sends no device data."""
+        now = self._clock()
+        if not self.settings.ping_url or (
+                self.last_ping_at is not None and now - self.last_ping_at < self.settings.heartbeat_interval_seconds):
+            return
+        self.last_ping_at = now
+        try:
+            with urlopen(Request(self.settings.ping_url, method="GET"), timeout=5) as response:
+                response.read(64)
+        except (HTTPError, URLError, OSError, ValueError) as error:
+            # Missing pings are the signal; the watchdog raises the alert, not this device.
+            logger.info("Watchdog ping failed: %s", type(error).__name__)
+
     def check_once(self) -> dict[str, Any]:
         statuses = {
             "database": self._database_status(),
@@ -319,6 +346,7 @@ class HealthChecker:
                 } for camera in cameras],
             })
             self.last_heartbeat_at = now
+        self._ping_watchdog()
         self._deliver_notifications()
         return result
 
