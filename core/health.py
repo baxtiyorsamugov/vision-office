@@ -43,6 +43,10 @@ class HealthSettings:
     telegram_bot_token: str = ""
     telegram_chat_ids: tuple[str, ...] = ()
     camera_stale_seconds: int = 15
+    # A component must stay failed (or healthy again) this long before Telegram hears about it,
+    # so short RTSP drops and worker restarts do not produce alert/recovered pairs.
+    alert_after_seconds: int = 90
+    recover_after_seconds: int = 30
 
     @property
     def telegram_configured(self) -> bool:
@@ -68,6 +72,8 @@ def load_health_settings(path: str | Path = "config/settings.yaml") -> HealthSet
         telegram_bot_token=str(values.get("telegram_bot_token", "")),
         telegram_chat_ids=tuple(str(chat_id) for chat_id in ids if str(chat_id).strip()),
         camera_stale_seconds=max(3, int(values.get("camera_stale_seconds", defaults.camera_stale_seconds))),
+        alert_after_seconds=max(0, int(values.get("alert_after_seconds", defaults.alert_after_seconds))),
+        recover_after_seconds=max(0, int(values.get("recover_after_seconds", defaults.recover_after_seconds))),
     )
 
 
@@ -79,6 +85,9 @@ class HealthChecker:
         run_migrations(self.engine)
         self.Session = sessionmaker(bind=self.engine)
         self.failure_counts: dict[str, int] = {}
+        self.failing_since: dict[str, float] = {}
+        self.healthy_since: dict[str, float] = {}
+        self._clock = time.monotonic
         self.last_heartbeat_at = 0.0
         self.last_cleanup_at = 0.0
         self.edge_service = EdgeService(edge_settings, engine=self.engine) if edge_settings.configured else None
@@ -182,7 +191,9 @@ class HealthChecker:
         finally:
             session.close()
 
-    def _update_incident(self, component: str, status: str, message: str) -> None:
+    def _update_incident(self, component: str, status: str, message: str) -> tuple[str, str] | None:
+        """Open or close an incident; return ("alert"|"recovered", line) when Telegram should hear."""
+        now = self._clock()
         session = self.Session()
         notification = None
         try:
@@ -192,25 +203,29 @@ class HealthChecker:
             ).order_by(HealthIncident.opened_at.desc()).first()
             if status == "ok":
                 self.failure_counts.pop(component, None)
-                if active:
+                self.failing_since.pop(component, None)
+                healthy_since = self.healthy_since.setdefault(component, now)
+                if active and now - healthy_since >= self.settings.recover_after_seconds:
                     active.status = "recovered"
                     active.recovered_at = self._utcnow()
-                    notification = f"Vision Office recovered: {component}. {message}"
+                    notification = ("recovered", f"{component}. {message}")
                 session.commit()
             else:
+                self.healthy_since.pop(component, None)
                 failures = self.failure_counts.get(component, 0) + 1
                 self.failure_counts[component] = failures
-                if failures >= self.settings.failure_threshold and not active:
+                failing_since = self.failing_since.setdefault(component, now)
+                if (failures >= self.settings.failure_threshold and not active
+                        and now - failing_since >= self.settings.alert_after_seconds):
                     incident = HealthIncident(
                         id=str(uuid.uuid4()), component=component, status="open", message=message,
                     )
                     session.add(incident)
-                    notification = f"Vision Office alert: {component}. {message}"
+                    notification = ("alert", f"{component}. {message}")
                 session.commit()
         finally:
             session.close()
-        if notification:
-            self._queue_notification(notification)
+        return notification
 
     def _deliver_notifications(self, limit: int = 10) -> int:
         if not self.settings.telegram_configured:
@@ -262,8 +277,17 @@ class HealthChecker:
             "erp": self._edge_status(),
             **self._camera_statuses(),
         }
+        changes = {"alert": [], "recovered": []}
         for component, (status, message) in statuses.items():
-            self._update_incident(component, status, message)
+            change = self._update_incident(component, status, message)
+            if change:
+                changes[change[0]].append(change[1])
+        # One message per kind and check, e.g. all cameras dropping together after a worker restart.
+        for kind, lines in changes.items():
+            if len(lines) == 1:
+                self._queue_notification(f"Vision Office {kind}: {lines[0]}")
+            elif lines:
+                self._queue_notification(f"Vision Office {kind}:\n" + "\n".join(f"• {line}" for line in lines))
         now = time.monotonic()
         if now - self.last_cleanup_at >= 86400:
             RecognitionEventStore(self.engine).purge_expired_photos()

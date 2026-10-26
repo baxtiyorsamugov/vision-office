@@ -208,7 +208,7 @@ class PlatformTests(unittest.TestCase):
         self.addCleanup(health_file.stop)
         run_migrations(self.engine)
         checker = HealthChecker(
-            HealthSettings(enabled=True, failure_threshold=1),
+            HealthSettings(enabled=True, failure_threshold=1, alert_after_seconds=0, recover_after_seconds=0),
             EdgeSettings(),
             engine=self.engine,
         )
@@ -233,6 +233,44 @@ class PlatformTests(unittest.TestCase):
             self.assertIsNotNone(incident.recovered_at)
         finally:
             session.close()
+
+    def test_short_outages_stay_silent_and_simultaneous_alerts_are_grouped(self):
+        health_file = patch("core.health.HEALTH_FILE", Path(self.tempdir.name) / "health_status.json")
+        health_file.start()
+        self.addCleanup(health_file.stop)
+        run_migrations(self.engine)
+        checker = HealthChecker(
+            HealthSettings(enabled=True, failure_threshold=1, alert_after_seconds=90, recover_after_seconds=30),
+            EdgeSettings(), engine=self.engine,
+        )
+        sent = []
+        checker._queue_notification = sent.append
+        for name in ("_database_status", "_internet_status", "_disk_status", "_edge_status"):
+            setattr(checker, name, lambda: ("ok", "ready"))
+        clock = [0.0]
+        checker._clock = lambda: clock[0]
+
+        def check(at, state):
+            clock[0] = at
+            checker._camera_statuses = lambda: {
+                f"camera:{name}": (state, "stream lost" if state == "failed" else "frames current")
+                for name in ("entry", "exit")}
+            checker.check_once()
+
+        for at, state in ((0, "failed"), (60, "failed"), (65, "ok")):
+            check(at, state)
+        self.assertEqual(sent, [])
+        check(100, "failed")
+        check(195, "failed")
+        self.assertEqual(len(sent), 1)
+        self.assertIn("camera:entry", sent[0])
+        self.assertIn("camera:exit", sent[0])
+        for at, state in ((200, "ok"), (210, "failed"), (215, "ok"), (240, "ok")):
+            check(at, state)
+        self.assertEqual(len(sent), 1)
+        check(250, "ok")
+        self.assertEqual(len(sent), 2)
+        self.assertTrue(sent[1].startswith("Vision Office recovered:"))
 
     def test_health_checker_flags_stale_configured_camera_and_ignores_test_artifact(self):
         checker = HealthChecker(HealthSettings(camera_stale_seconds=15), EdgeSettings(), engine=self.engine)
