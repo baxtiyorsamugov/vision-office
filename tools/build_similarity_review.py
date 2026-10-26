@@ -28,18 +28,35 @@ def unit(value):
     return vector / norm if norm > 0 and np.isfinite(vector).all() else None
 
 
-def build(input_root: Path, output: Path, since: str, min_similarity: float):
+def pick_spread(rows: list[dict], count: int) -> list[dict]:
+    """Keep the most similar frame, then the frames furthest in time from those already kept."""
+    if count <= 0:
+        return []
+    moment = {row["id"]: datetime.fromisoformat(re.sub(r"\.\d+", "", row["at"]).replace("Z", "+00:00")).timestamp()
+              for row in rows}
+    remaining = sorted(rows, key=lambda row: (-row["suggested_similarity"], row["id"]))
+    kept = [remaining.pop(0)]
+    while remaining and len(kept) < count:
+        best = max(remaining, key=lambda row: (min(abs(moment[row["id"]] - moment[k["id"]]) for k in kept),
+                                               row["suggested_similarity"]))
+        remaining.remove(best)
+        kept.append(best)
+    return kept
+
+
+def build(input_root: Path, output: Path, since: str, min_similarity: float,
+          max_per_person: int = 6, reference_limit: int = 15):
     input_root, output = input_root.resolve(), output.resolve()
     if output.exists() or output.is_relative_to(input_root):
         raise ValueError("Use a new output directory outside the imported data")
-    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", since):
-        raise ValueError("--since must be a date like 2026-10-23")
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}Z)?", since):
+        raise ValueError("--since must look like 2026-10-23 or 2026-10-24T06:40Z (UTC)")
     dumps = list(input_root.glob("*.dump"))
     if len(dumps) != 1:
         raise ValueError("Exactly one *.dump is required in the input folder")
     with isolated_dump(input_root, dumps[0]) as query:
         people = query("SELECT id, full_name, person_type, active FROM eduschool_catalog_people ORDER BY full_name, id")
-        references = query("""SELECT id, person_id, photo_path, embedding FROM eduschool_reference_photos
+        references = query("""SELECT id, person_id, photo_path, source, embedding FROM eduschool_reference_photos
                               WHERE active ORDER BY id""")
         events = query(f"""SELECT e.id, e.camera_id, e.event_type, e.photo_path, e.created_at, o.embedding
             FROM recognition_events e JOIN unknown_face_observations o ON o.event_id = e.id
@@ -69,6 +86,7 @@ def build(input_root: Path, output: Path, since: str, min_similarity: float):
 
     lookup = {person["id"]: {**person, "references": []} for person in people}
     vectors, owners = [], []
+    local_counts = Counter(reference["person_id"] for reference in references if reference["source"] == "local")
     for reference in references:
         person = lookup.get(reference["person_id"])
         vector = unit(reference["embedding"]) if reference["embedding"] else None
@@ -95,13 +113,27 @@ def build(input_root: Path, output: Path, since: str, min_similarity: float):
         if scores[best] < min_similarity:
             skipped["below_similarity"] += 1
             continue
-        photo = materialize(event["photo_path"])
+        rows.append({"id": event["id"], "camera": event["camera_id"], "kind": event["event_type"], "at": event["created_at"],
+                     "prediction_name": None, "prediction_type": "unknown", "prediction_person_id": None,
+                     "suggested_person_id": str(owners[best]), "suggested_similarity": round(float(scores[best]), 3),
+                     "photo_path": event["photo_path"]})
+    # Only as many frames per person as can still become references, spread over different moments.
+    by_person: dict[str, list[dict]] = {}
+    for row in rows:
+        by_person.setdefault(row["suggested_person_id"], []).append(row)
+    selected = []
+    for person_id, person_rows in by_person.items():
+        room = min(max_per_person, reference_limit - local_counts[person_id])
+        kept = pick_spread(person_rows, room)
+        skipped["over_person_cap"] += len(person_rows) - len(kept)
+        selected.extend(kept)
+    rows = []
+    for row in selected:
+        photo = materialize(row.pop("photo_path"))
         if photo is None:
             skipped["events"] += 1
             continue
-        rows.append({"id": event["id"], "camera": event["camera_id"], "kind": event["event_type"], "at": event["created_at"],
-                     "prediction_name": None, "prediction_type": "unknown", "prediction_person_id": None,
-                     "suggested_person_id": str(owners[best]), "suggested_similarity": round(float(scores[best]), 3), **photo})
+        rows.append({**row, **photo})
     report = {"version": 1, "created_at": datetime.now(timezone.utc).isoformat(), "review_scope": "unknown",
               "dump_sha256": digest(dumps[0]), "people": list(lookup.values()), "events": rows,
               "skipped": dict(skipped), "missing_by_date": {}, "since": since, "min_similarity": min_similarity}
@@ -115,10 +147,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input-root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--since", required=True, help="Only unknown events at or after this date, e.g. 2026-10-23")
+    parser.add_argument("--since", required=True, help="Only unknown events at or after this UTC date or time, e.g. 2026-10-23 or 2026-10-24T06:40Z")
     parser.add_argument("--min-similarity", type=float, default=0.35)
+    parser.add_argument("--max-per-person", type=int, default=6, help="Frames per suggested person to review")
+    parser.add_argument("--reference-limit", type=int, default=15, help="Local reference limit on the device")
     args = parser.parse_args()
-    build(args.input_root, args.output, args.since, args.min_similarity)
+    build(args.input_root, args.output, args.since, args.min_similarity, args.max_per_person, args.reference_limit)
 
 
 if __name__ == "__main__":
