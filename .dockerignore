@@ -17,3 +17,6 @@ models/
 *.mkv
 *.mov
 video/
+backups/
+*.dump
+logs/
