@@ -56,6 +56,10 @@ services:
     environment:
       <<: *common-environment
       VISION_OFFICE_HEADLESS: "true"
+      # Reject coin-flip matches: the matched person must beat the best OTHER person
+      # by at least 0.05. Replay bench 2026-11-04: blocked 3 confirmed false matches,
+      # no confirmed correct match was blocked. 0 disables.
+      VISION_OFFICE_MIN_MATCH_MARGIN: "0.05"
     command: ["python", "main.py"]
     healthcheck:
       test: ["CMD", "python", "docker/healthcheck.py", "worker"]

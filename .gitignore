@@ -52,3 +52,6 @@ config/settings.yaml
 docker-compose.override.yml
 
 .idea
+
+# Replay bench runtime (DB snapshot, generated config, events, reports)
+replay/runtime/

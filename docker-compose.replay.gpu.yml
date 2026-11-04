@@ -1,0 +1,16 @@
+# Optional: run the replay worker on the GPU. The production worker shares the
+# same card, so tools/replay_recordings.ps1 checks free VRAM first.
+services:
+  replay-worker:
+    image: vision-office-gpu:${VISION_OFFICE_GPU_PROFILE:-cu124}
+    environment:
+      VISION_OFFICE_DEVICE: auto
+      CUDA_VISIBLE_DEVICES: "${VISION_OFFICE_GPU_INDEX:-0}"
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

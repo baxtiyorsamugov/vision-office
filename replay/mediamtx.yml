@@ -1,0 +1,18 @@
+# Replay RTSP server. Every recording /recordings/<name>.<ext> is served as
+# rtsp://replay-rtsp:8554/<name> in real time and in a loop, started on demand.
+logLevel: info
+rtsp: yes
+rtmp: no
+hls: no
+webrtc: no
+srt: no
+api: no
+metrics: no
+
+paths:
+  "~^[A-Za-z0-9_-]+$":
+    runOnDemand: sh /replay/publish.sh
+    runOnDemandRestart: yes
+    runOnDemandStartTimeout: 20s
+    # The publisher may wait for the worker's AI to load; a reader retry restarts it.
+    runOnDemandCloseAfter: 15s

@@ -17,7 +17,11 @@ ANALYZING_STATUS = "Анализ..."
 SEARCHING_STATUS = "Поиск лица..."
 UNKNOWN_STATUS = "Неизвестный"
 RETRY_INTERVAL_SEC = 0.3
-UNKNOWN_RETRY_INTERVAL_SEC = 1.5
+# Retry pace for an unknown face; the replay bench overrides it to test more attempts per pass.
+# Minimum gap between the matched person and the best DIFFERENT person. 0 keeps the
+# production behaviour; the replay bench tests e.g. 0.05 against coin-flip matches.
+MIN_MATCH_MARGIN = float(os.getenv("VISION_OFFICE_MIN_MATCH_MARGIN", "0") or 0)
+UNKNOWN_RETRY_INTERVAL_SEC = float(os.getenv("VISION_OFFICE_UNKNOWN_RETRY_SEC", "1.5") or 1.5)
 EMPLOYEE_CACHE_TTL_SEC = 5
 FACE_TASK_MAX_AGE_SEC = 2.0
 TRACK_TTL_SEC = 10.0
@@ -113,6 +117,14 @@ def _load_known_faces(Session, edge_service=None, remote_mode=False):
         session.close()
 
 
+def _best_other_score(identities, similarities, person_id, limit=50):
+    """Score of the best gallery vector that belongs to a different person."""
+    for idx in np.argsort(-similarities)[:limit]:
+        if identities[int(idx)].get("person_id") != person_id:
+            return float(similarities[int(idx)])
+    return 0.0
+
+
 def _choose_best_match(identities, similarities, threshold, eduschool_threshold=0.55):
     best_idx = int(np.argmax(similarities))
     best_sim = float(similarities[best_idx])
@@ -153,6 +165,8 @@ def face_recognition_worker(input_queue, shared_memory, face_timings, face_metri
     known_names, known_embeddings = cache.snapshot
     face_metrics["known_vectors"] = len(known_names)
     print(f"🤖 [Worker] Загружено эмбеддингов: {len(known_names)}")
+    from core.ai.trace import RecognitionTrace, trace_enabled
+    trace = RecognitionTrace(camera_id, PROJECT_ROOT / "data" / "recognition_trace") if trace_enabled() else None
     
     print("🤖 [Worker] Разогрев нейросети...")
     dummy_img = np.zeros((112, 112, 3), dtype=np.uint8)
@@ -219,7 +233,16 @@ def face_recognition_worker(input_queue, shared_memory, face_timings, face_metri
                 best_match = known_names[best_idx]
                 if str(best_match.get("person_id") or "").startswith("edu:"):
                     threshold = max(threshold, eduschool_settings.recognition_threshold)
-                if max_sim > threshold:
+                accepted = max_sim > threshold
+                if accepted and MIN_MATCH_MARGIN > 0:
+                    margin = max_sim - _best_other_score(known_names, sims, best_match.get("person_id"))
+                    accepted = margin >= MIN_MATCH_MARGIN
+                if trace is not None:
+                    trace.write(track_id=track_id, face_shape=face_img.shape, identities=known_names, similarities=sims,
+                                threshold=threshold,
+                                decision="known" if accepted else ("low-margin" if max_sim > threshold else "unknown"),
+                                chosen=best_match if accepted else None, face_img=face_img)
+                if accepted:
                     previous_id = shared_memory.get(track_id, {}).get("recorded_person_id")
                     if previous_id != best_match.get("person_id"):
                         event = event_store.record(
@@ -274,6 +297,9 @@ def face_recognition_worker(input_queue, shared_memory, face_timings, face_metri
                 )
             else:
                 # Если лицо отвернуто/размыто, пишем статус, чтобы попробовать еще раз
+                if trace is not None and embedding is None:
+                    trace.write(track_id=track_id, face_shape=face_img.shape, identities=known_names, similarities=None,
+                                threshold=edge_settings.recognition_threshold, decision="no-embedding")
                 shared_memory[track_id] = {"name": SEARCHING_STATUS}
                 
         except Exception as e:

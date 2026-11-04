@@ -1,0 +1,152 @@
+# Isolated replay bench: recorded camera files are re-streamed as RTSP and
+# processed by the SAME worker code and thresholds as production.
+#
+# Safety: separate Compose project, separate PostgreSQL volume (a snapshot of
+# production), separate data directory, and NO edge-sync, EduSchool sync,
+# turnstile, photo or unknown-clusterer services. The worker and database sit
+# on an internal network without Internet access, so nothing can be delivered
+# to the backend or EduSchool. Start it only via tools/replay_recordings.ps1.
+name: vision-replay
+
+x-replay-environment: &replay-environment
+  PYTHONUNBUFFERED: "1"
+  # Never start the in-process edge delivery worker.
+  VISION_OFFICE_EXTERNAL_EDGE_SYNC: "true"
+  VISION_OFFICE_DATABASE_URL: postgresql+psycopg://vision_office:replay-local-only@replay-postgres:5432/vision_office
+  YOLO_CONFIG_DIR: /tmp/vision-office-yolo
+  VISION_OFFICE_DEVICE: cpu
+  VISION_OFFICE_CPU_THREADS: "${REPLAY_CPU_THREADS:-2}"
+
+x-replay-app: &replay-app
+  # Reuse the already-built production image; nothing is rebuilt.
+  image: ${REPLAY_APP_IMAGE:-vision-office-ui}
+  init: true
+  restart: "no"
+  environment: *replay-environment
+  volumes:
+    # Current working-tree code (read-only) so recognition changes can be tried
+    # here first without touching the production containers.
+    - ./core:/app/core:ro
+    - ./database:/app/database:ro
+    - ./api:/app/api:ro
+    - ./ui:/app/ui:ro
+    - ./tools:/app/tools:ro
+    - ./main.py:/app/main.py:ro
+    - ./replay/runtime/config:/app/config:ro
+    - ./replay/runtime/data:/app/data
+    - ./data/faces:/app/data/faces:ro
+    - ./models:/app/models:ro
+
+services:
+  replay-rtsp:
+    image: bluenviron/mediamtx:1.9.3-ffmpeg
+    restart: "no"
+    environment:
+      REPLAY_TRANSCODE: "${REPLAY_TRANSCODE:-0}"
+      # 0 = every recording plays exactly once (clean statistics); 1 = loop forever.
+      REPLAY_LOOP: "${REPLAY_LOOP:-0}"
+      REPLAY_START_DELAY: "${REPLAY_START_DELAY:-2}"
+    volumes:
+      - ./replay/mediamtx.yml:/mediamtx.yml:ro
+      - ./replay/publish.sh:/replay/publish.sh:ro
+      - ${REPLAY_VIDEO_DIR:-./video}:/recordings:ro
+      # Read-only worker status: a recording starts only when its camera's AI is ready.
+      - ./replay/runtime/data:/status:ro
+    ports:
+      # Open rtsp://127.0.0.1:8554/<file-name> in VLC to watch a replayed stream.
+      - "127.0.0.1:8554:8554"
+    networks: [replay-internal, replay-host]
+
+  replay-postgres:
+    image: postgres:16-alpine
+    restart: "no"
+    environment:
+      POSTGRES_DB: vision_office
+      POSTGRES_USER: vision_office
+      POSTGRES_PASSWORD: replay-local-only
+    volumes:
+      - vision-replay-postgres:/var/lib/postgresql/data
+      - ./replay/runtime/snapshot:/snapshot:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [replay-internal]
+
+  replay-migrate:
+    <<: *replay-app
+    depends_on:
+      replay-postgres:
+        condition: service_healthy
+    command: ["python", "-m", "database.manager"]
+    networks: [replay-internal]
+
+  replay-worker:
+    <<: *replay-app
+    image: ${REPLAY_WORKER_IMAGE:-vision-office-vision-worker}
+    depends_on:
+      replay-migrate:
+        condition: service_completed_successfully
+      replay-rtsp:
+        condition: service_started
+    environment:
+      <<: *replay-environment
+      VISION_OFFICE_HEADLESS: "true"
+      VISION_OFFICE_DEVICE: ${REPLAY_DEVICE:-cpu}
+      # Smooth MJPEG live view per camera on 8090, 8091, ... (see replay-view).
+      VISION_OFFICE_LIVE_VIEW_PORT: "8090"
+      # Every recognition attempt -> data/recognition_trace/<camera>.jsonl (bench only).
+      VISION_OFFICE_RECOGNITION_TRACE: "true"
+      # Experiment knobs (production defaults: 1.5 s and 0.5).
+      VISION_OFFICE_UNKNOWN_RETRY_SEC: "${REPLAY_UNKNOWN_RETRY_SEC:-1.5}"
+      VISION_OFFICE_FACE_DET_THRESH: "${REPLAY_FACE_DET_THRESH:-0.5}"
+      VISION_OFFICE_MIN_MATCH_MARGIN: "${REPLAY_MIN_MATCH_MARGIN:-0}"
+    command: ["python", "main.py"]
+    networks: [replay-internal]
+
+  # Relays only the live-view ports to localhost; the worker keeps no Internet.
+  replay-view:
+    <<: *replay-app
+    depends_on:
+      replay-worker:
+        condition: service_started
+    command: ["python", "tools/replay/tcp_forward.py", "--host", "replay-worker", "--first-port", "8090", "--count", "6"]
+    ports:
+      - "127.0.0.1:8090-8095:8090-8095"
+    networks: [replay-internal, replay-host]
+
+  replay-api:
+    <<: *replay-app
+    depends_on:
+      replay-migrate:
+        condition: service_completed_successfully
+    command: ["python", "-m", "uvicorn", "api.server:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "127.0.0.1:8001:8000"
+    networks: [replay-internal, replay-host]
+
+  replay-ui:
+    <<: *replay-app
+    depends_on:
+      replay-migrate:
+        condition: service_completed_successfully
+    environment:
+      <<: *replay-environment
+      VISION_OFFICE_MANAGED_RUNTIME: "true"
+      VISION_OFFICE_API_PUBLIC_URL: http://127.0.0.1:8001
+      STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
+    command: ["python", "-m", "streamlit", "run", "ui/app.py", "--server.address", "0.0.0.0", "--server.port", "8501", "--server.headless", "true"]
+    ports:
+      - "127.0.0.1:8502:8501"
+    networks: [replay-internal, replay-host]
+
+networks:
+  # No Internet: the worker and database can only talk to each other and the RTSP server.
+  replay-internal:
+    internal: true
+  # Only for publishing localhost ports of the RTSP server, API and UI.
+  replay-host: {}
+
+volumes:
+  vision-replay-postgres:

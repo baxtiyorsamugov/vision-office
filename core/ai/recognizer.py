@@ -109,7 +109,10 @@ class FaceRecognizer:
             providers=providers,
             sess_options=options,
         )
-        app.prepare(ctx_id=0 if use_cuda else -1, det_size=det_size)
+        # det_thresh 0.5 is InsightFace's default; the replay bench may lower it to
+        # test steep top-down faces that the crop detector currently rejects.
+        det_thresh = float(os.getenv("VISION_OFFICE_FACE_DET_THRESH", "0.5") or 0.5)
+        app.prepare(ctx_id=0 if use_cuda else -1, det_size=det_size, det_thresh=det_thresh)
         return app
 
     def _sessions_use_cuda(self):

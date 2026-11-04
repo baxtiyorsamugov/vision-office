@@ -18,6 +18,7 @@ from core.logging_setup import configure_logging
 from core.overlay import draw_detection_label
 from core.performance import write_camera_runtime_status
 from core.preview import CameraPreviewPublisher
+from core.live_view import LiveView, live_view_port_base
 from core.video.streamer import VideoStream
 from database.manager import init_db
 
@@ -59,6 +60,9 @@ def run_camera(camera: CameraSettings, ai_settings: dict, log_level: str = "INFO
         max_width=ai_settings.get("monitor_preview_width", 960),
         jpeg_quality=ai_settings.get("monitor_preview_jpeg_quality", 70),
     ).start()
+    live_port = live_view_port_base()
+    # Replay bench only: a smooth, full-rate view of the annotated frames.
+    live = LiveView(camera.id, camera.name, live_port).start() if live_port else None
     window_name = f"Smart Vision AI - {camera.name}"
     headless = headless_mode()
     last_status_update = 0.0
@@ -89,11 +93,13 @@ def run_camera(camera: CameraSettings, ai_settings: dict, log_level: str = "INFO
                 x1, y1, x2, y2 = item["box"]
                 name = item["name"]
                 hr.register_presence(item, event_type=camera.event_type)
-                frame = draw_detection_label(frame, (x1, y1, x2, y2), name)
+                frame = draw_detection_label(frame, (x1, y1, x2, y2), name, item.get("confidence"))
 
             # Preview encoding runs in a separate one-slot mailbox. It never
             # starts another RTSP reader and drops frames instead of slowing AI.
             preview.submit(frame)
+            if live is not None:
+                live.submit(frame)
 
             if not headless:
                 display_frame = cv2.resize(frame, (1280, 720), interpolation=cv2.INTER_AREA)
@@ -112,6 +118,8 @@ def run_camera(camera: CameraSettings, ai_settings: dict, log_level: str = "INFO
         })
         stream.stop()
         preview.stop()
+        if live is not None:
+            live.stop()
         ai.stop()
         if not headless:
             cv2.destroyWindow(window_name)
