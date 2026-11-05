@@ -370,7 +370,7 @@ def render_navigation():
         with center:
             page = st.radio(
                 "Навигация",
-                ["Панель", "Камеры", "Аналитика", "Отчёты", "Сотрудники", "Регистрация", "Отправки", "API"],
+                ["Панель", "Камеры", "Аналитика", "Отчёты", "Сотрудники", "Разметка", "Регистрация", "Отправки", "API"],
                 horizontal=True,
                 label_visibility="collapsed",
             )
@@ -1636,6 +1636,9 @@ elif page == "Отчёты":
     render_attendance_reports()
 elif page == "Сотрудники":
     render_people()
+elif page == "Разметка":
+    from ui.labeling import render_labeling
+    render_labeling(engine, render_header)
 elif page == "Регистрация":
     render_registration()
 elif page == "Отправки":

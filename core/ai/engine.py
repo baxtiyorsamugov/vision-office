@@ -241,7 +241,8 @@ def face_recognition_worker(input_queue, shared_memory, face_timings, face_metri
                     trace.write(track_id=track_id, face_shape=face_img.shape, identities=known_names, similarities=sims,
                                 threshold=threshold,
                                 decision="known" if accepted else ("low-margin" if max_sim > threshold else "unknown"),
-                                chosen=best_match if accepted else None, face_img=face_img)
+                                chosen=best_match if accepted else None, face_img=face_img,
+                                embedding=embedding)
                 if accepted:
                     previous_id = shared_memory.get(track_id, {}).get("recorded_person_id")
                     if previous_id != best_match.get("person_id"):

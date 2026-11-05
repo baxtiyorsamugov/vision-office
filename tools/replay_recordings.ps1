@@ -35,6 +35,7 @@ param(
     [double]$FaceDetThresh = 0.5,
     [double]$MinMargin = 0,
     [switch]$NoView,
+    [switch]$ProdOnly,
     [ValidateRange(1, 5)][int]$Repeat = 1,
     [double]$CandidateRetrySec = 0.4,
     [double]$CandidateMinMargin = 0.05,
@@ -139,9 +140,11 @@ try {
                 $recordings = $recordings | Where-Object { $wantedCompare -contains $_.BaseName.ToLower() }
             }
             $profiles = @(
-                @{ Name = "prod"; Retry = 1.5; Margin = 0 },
+                @{ Name = "prod"; Retry = 1.5; Margin = 0.05 },
                 @{ Name = "candidate"; Retry = $CandidateRetrySec; Margin = $CandidateMinMargin }
             )
+            # -ProdOnly: one run per recording with the settings now going to production.
+            if ($ProdOnly) { $profiles = @($profiles[0]) }
             $runsFile = Join-Path $runtime "data\compare-runs-$(Get-Date -Format 'yyyyMMdd-HHmmss').jsonl"
             $total = @($recordings).Count * $profiles.Count * $Repeat
             $index = 0

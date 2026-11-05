@@ -36,7 +36,7 @@ class RecognitionTrace:
         self._seq = 0
 
     def write(self, *, track_id, face_shape, identities, similarities, threshold, decision, chosen=None,
-              face_img=None) -> None:
+              face_img=None, embedding=None) -> None:
         record = {"t": round(time.time(), 3), "camera": self.camera_id, "track": int(track_id) if track_id is not None else None,
                   "face_w": int(face_shape[1]) if face_shape is not None else None,
                   "face_h": int(face_shape[0]) if face_shape is not None else None,
@@ -57,6 +57,12 @@ class RecognitionTrace:
                 record["best_id"], record["best_name"], record["best_score"] = best[0], best[1].get("name"), round(best[2], 4)
         if chosen is not None:
             record["chosen_id"] = chosen.get("person_id")
+        if embedding is not None:
+            # Unit vector, 4 decimals: lets the bench test track-level averaging offline.
+            vector = np.asarray(embedding, dtype=np.float32)
+            norm = float(np.linalg.norm(vector))
+            if norm > 0:
+                record["emb"] = [round(float(x), 4) for x in vector / norm]
         # Keep the crop of plausible attempts so a voting decision can be checked by eye.
         if face_img is not None and record.get("best_score", 0) >= CROP_FLOOR:
             self._seq += 1

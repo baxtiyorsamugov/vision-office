@@ -281,3 +281,21 @@ class NotificationOutbox(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
     next_attempt_at = Column(DateTime(timezone=True), nullable=True)
     sent_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class FaceLabelDecision(Base):
+    """Audit trail of the face-labeling page: who labeled which camera frame and what happened."""
+    __tablename__ = "face_label_decisions"
+
+    id = Column(String(36), primary_key=True)
+    event_id = Column(String(36), ForeignKey("recognition_events.id"), nullable=False, index=True)
+    person_id = Column(String(40), ForeignKey("eduschool_catalog_people.id"), nullable=True, index=True)
+    # added | rejected | forced | skip | bad | undone
+    decision = Column(String(20), nullable=False, index=True)
+    reference_photo_id = Column(String(36), nullable=True, index=True)
+    actor = Column(String(80), nullable=False)
+    detail = Column(Text, nullable=True)
+    own_score = Column(Float, nullable=True)
+    other_score = Column(Float, nullable=True)
+    other_person_id = Column(String(40), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, index=True)
