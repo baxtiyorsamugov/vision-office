@@ -206,7 +206,7 @@ def write_report(path, value):
 
 def run_import(engine, folder, root, output, *, apply=False, reference_limit=15,
                expected_count=None, embedding_fn=None, service_factory=None, skip_inactive=False,
-               skip_over_limit=False):
+               skip_over_limit=False, consistency_check=False):
     folder, root, output = Path(folder).resolve(), Path(root).resolve(), Path(output).resolve()
     if output.exists() or output.is_relative_to(folder):
         raise ValueError('Use a new output directory outside the input bundle')
@@ -214,7 +214,8 @@ def run_import(engine, folder, root, output, *, apply=False, reference_limit=15,
     planned = preflight(engine, manifest, reference_limit, skip_inactive, skip_over_limit)
     report = {'version': 1, 'mode': 'apply' if apply else 'dry_run', 'complete': False,
               'review_sha256': manifest['source_annotation_sha256'], 'started_at': datetime.now(timezone.utc).isoformat(),
-              'face_processing_tested': False, 'backup': None, 'results': planned}
+              'face_processing_tested': False, 'consistency_check': bool(consistency_check), 'backup': None,
+              'results': planned}
     output.mkdir(parents=True)
     report_path = output / 'report.json'
     def checkpoint():
@@ -254,6 +255,12 @@ def run_import(engine, folder, root, output, *, apply=False, reference_limit=15,
             from core.ai.recognizer import FaceRecognizer
             recognizer = FaceRecognizer(use_cuda=False)
             embedding_fn = lambda image: recognizer.get_embedding(image, require_single=True)
+        checker = None
+        if consistency_check:
+            # Same rule as the labeling page: a reference must resemble its owner's photos
+            # more than anybody else's (2026-11-04: 28 references failed it and caused false matches).
+            from core.face_labeling import FaceLabelingService
+            checker = FaceLabelingService(engine, root=root, reference_limit=reference_limit, photo_service=service)
         for item, result in zip(manifest['items'], planned):
             if result['status'] != 'not_attempted':
                 continue
@@ -262,8 +269,21 @@ def run_import(engine, folder, root, output, *, apply=False, reference_limit=15,
                 raise ValueError('Input photo changed after preflight')
             result['status'] = 'processing'
             checkpoint()
+            item_fn = embedding_fn
+            if checker is not None:
+                def item_fn(image, _person_id=item['person_id']):
+                    vector = embedding_fn(image)
+                    if vector is None:
+                        return None
+                    verdict = checker.check_vector(vector, _person_id)
+                    result['own_score'] = verdict.own
+                    result['other_score'] = verdict.other
+                    result['other_person_id'] = verdict.other_person_id
+                    if not verdict.ok:
+                        raise ValueError(f'consistency_check: {verdict.reason}')
+                    return vector
             try:
-                service.add_local_photo(item['person_id'], raw, embedding_fn)
+                service.add_local_photo(item['person_id'], raw, item_fn)
                 from sqlalchemy import select
                 from sqlalchemy.orm import Session
                 from database.models import EduSchoolReferencePhoto as Photo
@@ -297,6 +317,8 @@ def main():
                         help='Leave out photos of profiles that are missing or inactive instead of blocking')
     parser.add_argument('--skip-over-limit', action='store_true',
                         help='Import photos in manifest order up to the per-person limit and leave out the rest')
+    parser.add_argument('--no-consistency-check', action='store_true',
+                        help='Skip the own-vs-other similarity check (on by default; see docs/REFERENCE_PHOTOS.md)')
     args = parser.parse_args()
     from database.manager import database_url
     from core.eduschool.catalog import load_settings
@@ -304,6 +326,7 @@ def main():
     try:
         result = run_import(engine, args.bundle, ROOT, args.output, apply=args.apply, skip_inactive=args.skip_inactive,
                             skip_over_limit=args.skip_over_limit,
+                            consistency_check=not args.no_consistency_check,
                             expected_count=args.expected_count,
                             reference_limit=load_settings().local_reference_photo_limit)
         print(json.dumps({'mode': result['mode'], 'complete': result['complete'], 'counts': result['counts'],

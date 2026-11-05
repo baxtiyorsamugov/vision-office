@@ -253,6 +253,11 @@ class FaceLabelingService:
 
     def check(self, event_id: str, person_id: str) -> CheckResult:
         _, vector = self._event_vector(event_id)
+        return self.check_vector(vector, person_id)
+
+    def check_vector(self, vector, person_id: str) -> CheckResult:
+        """Would this embedding be a safe reference for `person_id`? Same rule for the page and bundle imports."""
+        vector = normalized_embedding(vector)
         owners, names, matrix = self.gallery()
         scores = self.person_scores(vector, owners, matrix)
         own = scores.get(person_id)

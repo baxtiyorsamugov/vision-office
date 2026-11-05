@@ -226,6 +226,25 @@ class ReviewedImportTests(unittest.TestCase):
         self.assertEqual(self.count(),0)
 
 
+    def test_consistency_check_rejects_frames_that_look_like_someone_else(self):
+        other = 'employee:' + '2' * 24
+        lookalike = np.zeros(512, dtype=np.float32); lookalike[0] = 1.0
+        with Session(self.engine) as session:
+            session.add(Person(id=other, external_id='2' * 24, full_name='Other Person',
+                               person_type='employee', active=True, source_status='active'))
+            session.flush()
+            session.add(Photo(id='other-ref', person_id=other, photo_path='x.jpg', source='eduschool',
+                              image_checksum='other', embedding=lookalike.tolist(), active=True))
+            session.commit()
+        near_other = lookalike * 0.9 + np.eye(512, dtype=np.float32)[3] * 0.436
+        result = self.run_copy(apply=True, consistency_check=True, embedding_fn=lambda _: near_other)
+        self.assertEqual([r['status'] for r in result['results']], ['rejected', 'rejected'])
+        self.assertIn('consistency_check', result['results'][0]['reason'])
+        self.assertEqual(self.count(), 1)  # only the other person's reference
+        unrelated = np.eye(512, dtype=np.float32)[7]
+        result = self.run_copy(apply=True, output='second', consistency_check=True, embedding_fn=lambda _: unrelated)
+        self.assertEqual(result['results'][0]['status'], 'imported')
+
 
 class ReferenceLimitDefaultsTests(unittest.TestCase):
     def test_default_allows_fifteen_local_references_and_config_still_overrides(self):

@@ -27,7 +27,8 @@ logged in `face_label_decisions`; added references can be switched off.
 **Evidence.** The consistency rule is the same test that found 28 bad references
 (D-008). Unit tests: `tests/test_face_labeling.py`.
 
-**Consequences.** Faster reference growth without waiting for review rounds. The
+**Consequences.** Faster reference growth without waiting for review rounds. The same
+check runs in `tools/import_reviewed_photos.py` for offline review bundles (default on). The
 dashboard has no authentication: keep it on `127.0.0.1` until logins exist.
 
 **Revisit when.** Authentication is added (teachers on phones), or the journal
