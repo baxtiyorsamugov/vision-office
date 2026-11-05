@@ -11,6 +11,19 @@
 
 ## Current snapshot
 
+### Recognition quality: replay bench, margin guard, labeling page (2026-11-04/05)
+
+Added the isolated replay bench (recordings → RTSP → copy of production with a
+per-attempt trace) and used it to test retry timing, detector threshold, margin
+guard and embedding averaging; every changed match was verified by a person.
+Shipped: margin guard 0.05, Cyrillic-safe fast frame labels, deactivation of 28
+bad local references, and the «Разметка» labeling page with quality gate,
+consistency check, audit log and undo. Not shipped: faster retry (5 of 5 extra
+matches false) and averaging (unverifiable). Evidence and numbers:
+[docs/DECISIONS.md](docs/DECISIONS.md) D-003…D-010. Labeling unit tests (5) and a
+Streamlit page test pass. Production rollout on the work PC (SQL + restart) is
+**IN PROGRESS**.
+
 ### Delivery journal visibility (2026-10-10)
 
 The default event journal now reads the same outbox state as person cards, with

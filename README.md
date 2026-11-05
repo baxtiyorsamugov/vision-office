@@ -4,6 +4,10 @@ Vision Office is a local face-recognition and attendance platform for RTSP camer
 
 ## Engineering roadmap
 
+- [CLAUDE.md: rules and workflow for engineers and AI assistants](CLAUDE.md)
+- [Architecture](docs/ARCHITECTURE.md) · [Decision log](docs/DECISIONS.md) · [Documentation index](docs/README.md)
+- [Reference photos: labeling page, audit and fixes](docs/REFERENCE_PHOTOS.md)
+- [Replay bench for recognition changes](docs/RECORDING_REPLAY.md)
 - [Roadmap and live status](ROADMAP.md)
 - [Implementation playbook](docs/IMPLEMENTATION_PLAYBOOK.md)
 - [ERP adapter and mock contract](docs/ERP_CONTRACT.md)

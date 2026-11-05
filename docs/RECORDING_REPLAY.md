@@ -67,3 +67,32 @@ stays on the internal network; `replay-view` relays only these ports to localhos
   `--min-similarity 0.40`, giving the usual review page. Decisions go through
   `build_reference_bundle.py` and `import_reviewed_photos.py` on the work PC as before.
   Reference photos come from the newest `data/imports/review-*/persons` (or `-PersonsDir`).
+
+## Experiments: trace, knobs and Compare
+
+Every recognition attempt on the bench is appended to
+`replay/runtime/data/recognition_trace/<camera>.jsonl` (`VISION_OFFICE_RECOGNITION_TRACE`):
+time, track, crop size, best and second-best *different* person with scores, the
+decision (`known`, `unknown`, `low-margin`, `no-embedding`), the unit embedding and,
+for scores ≥ 0.35, the crop image. `-Action Report` adds a track-voting simulation
+from this trace. Production never sets the variable.
+
+Experiment knobs (production defaults in brackets), passed to `Start`/`Compare`:
+
+| Parameter | Env var | Meaning |
+| --- | --- | --- |
+| `-UnknownRetrySec` (1.5) | `VISION_OFFICE_UNKNOWN_RETRY_SEC` | Retry pace for unknown tracks |
+| `-FaceDetThresh` (0.5) | `VISION_OFFICE_FACE_DET_THRESH` | InsightFace detector threshold on the crop |
+| `-MinMargin` (0; prod compose 0.05) | `VISION_OFFICE_MIN_MATCH_MARGIN` | Required gap to the best other person |
+
+`-Action Compare` plays every recording alone, first with the production profile
+(retry 1.5 s, margin 0.05), then with the candidate (`-CandidateRetrySec`,
+`-CandidateMinMargin`), waits until each stream ends, and writes
+`replay/runtime/data/exports/replay-compare-*.html`: recognised people per run,
+people recognised only in one profile, matches blocked by the guard, attempts per
+track and the share of attempts without an embedding. `-ProdOnly` runs only the
+production profile; `-Repeat N` repeats each pair to expose run-to-run noise.
+
+A change is accepted only after every person recognised only by the candidate and
+every match it blocks has been checked by a human (see CLAUDE.md, "Changing
+recognition", and DECISIONS.md).
