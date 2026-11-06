@@ -56,6 +56,9 @@ page to every photo (own photos vs the most similar other person); failed photos
 are reported as `rejected` with reason `consistency_check: …` and are not imported.
 `--no-consistency-check` disables it (not recommended). Note: a dry run does not
 compute embeddings, so check results appear only in the `--apply` report.
+If EduSchool renamed a person after the review (same ID and type, e.g. word order
+fixed), the importer blocks the whole bundle with `profile_metadata_changed`;
+`--accept-renamed` imports such photos and records `renamed_from`/`renamed_to`.
 See [UPDATE_REFERENCE_PHOTOS_15.md](UPDATE_REFERENCE_PHOTOS_15.md).
 
 ## Auditing the gallery

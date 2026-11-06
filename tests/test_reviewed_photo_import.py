@@ -245,6 +245,16 @@ class ReviewedImportTests(unittest.TestCase):
         result = self.run_copy(apply=True, output='second', consistency_check=True, embedding_fn=lambda _: unrelated)
         self.assertEqual(result['results'][0]['status'], 'imported')
 
+    def test_renamed_profile_blocks_unless_explicitly_accepted(self):
+        with Session(self.engine) as session:
+            session.get(Person, self.pid).full_name = 'Person Fixture'
+            session.commit()
+        blocked = self.run_copy(output='strict')
+        self.assertEqual({r['status'] for r in blocked['results']}, {'blocked'})
+        report = self.run_copy(output='renamed', accept_renamed=True)
+        self.assertEqual({r['status'] for r in report['results']}, {'ready'})
+        self.assertEqual(report['results'][0]['renamed_to'], 'Person Fixture')
+        self.assertEqual(report['results'][0]['renamed_from'], 'Fixture Person')
 
 class ReferenceLimitDefaultsTests(unittest.TestCase):
     def test_default_allows_fifteen_local_references_and_config_still_overrides(self):

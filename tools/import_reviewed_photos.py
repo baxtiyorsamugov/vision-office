@@ -115,7 +115,7 @@ def open_engine(url, *, readonly):
     return engine
 
 
-def preflight(engine, manifest, reference_limit, skip_inactive=False, skip_over_limit=False):
+def preflight(engine, manifest, reference_limit, skip_inactive=False, skip_over_limit=False, accept_renamed=False):
     from sqlalchemy import inspect, select
     from sqlalchemy.orm import Session
     from database.models import EduSchoolCatalogPerson as Person, EduSchoolReferencePhoto as Photo
@@ -143,8 +143,9 @@ def preflight(engine, manifest, reference_limit, skip_inactive=False, skip_over_
                 status = 'skipped_inactive' if skip_inactive else 'blocked'
                 reason = 'profile_missing_or_inactive'
             elif (person.person_type != item['person_type']
-                  or person.id != person.person_type + ':' + person.external_id
-                  or person.full_name != item['full_name']):
+                  or person.id != person.person_type + ':' + person.external_id):
+                status, reason = 'blocked', 'profile_metadata_changed'
+            elif person.full_name != item['full_name'] and not accept_renamed:
                 status, reason = 'blocked', 'profile_metadata_changed'
             elif duplicate:
                 status = 'already_present' if duplicate.active else 'already_present_inactive'
@@ -156,9 +157,14 @@ def preflight(engine, manifest, reference_limit, skip_inactive=False, skip_over_
                 reason = 'local_reference_limit'
             else:
                 local_counts[item['person_id']] += 1
-            results.append({'event_id': item['event_id'], 'person_id': item['person_id'],
-                            'sha256': item['sha256'], 'status': status, 'reason': reason,
-                            'existing_reference_id': duplicate.id if duplicate else None})
+            row = {'event_id': item['event_id'], 'person_id': item['person_id'],
+                   'sha256': item['sha256'], 'status': status, 'reason': reason,
+                   'existing_reference_id': duplicate.id if duplicate else None}
+            if person is not None and person.full_name != item['full_name']:
+                # Same EduSchool ID and type; only the displayed name changed (e.g. word order fixed).
+                row['renamed_from'] = item['full_name']
+                row['renamed_to'] = person.full_name
+            results.append(row)
     return results
 
 
@@ -206,12 +212,12 @@ def write_report(path, value):
 
 def run_import(engine, folder, root, output, *, apply=False, reference_limit=15,
                expected_count=None, embedding_fn=None, service_factory=None, skip_inactive=False,
-               skip_over_limit=False, consistency_check=False):
+               skip_over_limit=False, consistency_check=False, accept_renamed=False):
     folder, root, output = Path(folder).resolve(), Path(root).resolve(), Path(output).resolve()
     if output.exists() or output.is_relative_to(folder):
         raise ValueError('Use a new output directory outside the input bundle')
     manifest = validate_bundle(folder, expected_count)
-    planned = preflight(engine, manifest, reference_limit, skip_inactive, skip_over_limit)
+    planned = preflight(engine, manifest, reference_limit, skip_inactive, skip_over_limit, accept_renamed)
     report = {'version': 1, 'mode': 'apply' if apply else 'dry_run', 'complete': False,
               'review_sha256': manifest['source_annotation_sha256'], 'started_at': datetime.now(timezone.utc).isoformat(),
               'face_processing_tested': False, 'consistency_check': bool(consistency_check), 'backup': None,
@@ -236,7 +242,7 @@ def run_import(engine, folder, root, output, *, apply=False, reference_limit=15,
     with lock.open('x', encoding='utf-8') as stream:
         stream.write(str(os.getpid()))
     try:
-        planned = preflight(engine, manifest, reference_limit, skip_inactive, skip_over_limit)
+        planned = preflight(engine, manifest, reference_limit, skip_inactive, skip_over_limit, accept_renamed)
         report['results'] = planned
         if any(r['status'] == 'blocked' for r in planned):
             report['complete'] = True
@@ -317,6 +323,8 @@ def main():
                         help='Leave out photos of profiles that are missing or inactive instead of blocking')
     parser.add_argument('--skip-over-limit', action='store_true',
                         help='Import photos in manifest order up to the per-person limit and leave out the rest')
+    parser.add_argument('--accept-renamed', action='store_true',
+                        help='Import photos of profiles whose name changed while EduSchool ID and type stayed the same')
     parser.add_argument('--no-consistency-check', action='store_true',
                         help='Skip the own-vs-other similarity check (on by default; see docs/REFERENCE_PHOTOS.md)')
     args = parser.parse_args()
@@ -327,6 +335,7 @@ def main():
         result = run_import(engine, args.bundle, ROOT, args.output, apply=args.apply, skip_inactive=args.skip_inactive,
                             skip_over_limit=args.skip_over_limit,
                             consistency_check=not args.no_consistency_check,
+                            accept_renamed=args.accept_renamed,
                             expected_count=args.expected_count,
                             reference_limit=load_settings().local_reference_photo_limit)
         print(json.dumps({'mode': result['mode'], 'complete': result['complete'], 'counts': result['counts'],
