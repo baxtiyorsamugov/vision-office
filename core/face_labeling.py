@@ -59,6 +59,7 @@ class QueueItem:
     sharpness: float
     group_event_ids: list[str] = field(default_factory=list)
     group_photos: list[str] = field(default_factory=list)
+    best_camera_refs: int = 0
 
 
 @dataclass
@@ -157,6 +158,19 @@ class FaceLabelingService:
         per_person = np.maximum.reduceat((matrix @ vector)[order], starts)
         return {str(pid): float(score) for pid, score in zip(people, per_person)}
 
+    def camera_ref_counts(self) -> dict[str, int]:
+        """Active camera-frame (local) references per person; the per-person limit applies to these."""
+        from sqlalchemy import func
+        with self.Session() as session:
+            rows = session.query(EduSchoolReferencePhoto.person_id, func.count()).filter(
+                EduSchoolReferencePhoto.source == "local", EduSchoolReferencePhoto.active.is_(True)
+            ).group_by(EduSchoolReferencePhoto.person_id).all()
+        return {person_id: int(count) for person_id, count in rows}
+
+    @property
+    def reference_limit(self) -> int:
+        return int(getattr(self.photos, "reference_limit", 15))
+
     def people(self) -> list[tuple[str, str]]:
         with self.Session() as session:
             rows = session.query(EduSchoolCatalogPerson.id, EduSchoolCatalogPerson.full_name).filter(
@@ -202,6 +216,7 @@ class FaceLabelingService:
                 query = query.filter(RecognitionEvent.camera_id == camera_id)
             rows = query.order_by(RecognitionEvent.created_at.desc()).limit(3000).all()
         groups: dict[object, QueueItem] = {}
+        camera_refs = self.camera_ref_counts()
         pending, vectors = [], []
         for event, observation in rows:
             if event.id in decided:
@@ -219,6 +234,8 @@ class FaceLabelingService:
             second = Suggestion(str(pid2), names[pid2], s2) if pid2 is not None else None
             if near_miss_only and (best is None or not NEAR_MISS_FLOOR <= best.score <= self.threshold):
                 continue
+            if best is not None and camera_refs.get(best.person_id, 0) >= self.reference_limit:
+                continue  # already at the per-person limit: a "Yes" could not add anything
             # Reading the image is the expensive part, so it comes after the cheap score filter.
             path = self.root / event.photo_path
             quality = frame_quality(path) if path.is_file() else None
@@ -230,7 +247,8 @@ class FaceLabelingService:
             # One card per unknown-visitor cluster (or per event when not clustered yet).
             key = ("visitor", observation.visitor_id) if observation.visitor_id else ("event", event.id)
             item = QueueItem(event.id, event.camera_id, event.created_at, event.photo_path, observation.visitor_id,
-                             best, second, (width, height), sharpness, [event.id], [event.photo_path])
+                             best, second, (width, height), sharpness, [event.id], [event.photo_path],
+                             camera_refs.get(best.person_id, 0) if best else 0)
             current = groups.get(key)
             if current is None:
                 groups[key] = item

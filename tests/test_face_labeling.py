@@ -120,6 +120,15 @@ class FaceLabelingTests(unittest.TestCase):
         # A frame that resembles the main photo too is accepted.
         self.add_event("good", mix((0, 0.7), (9, 0.71)))
         self.assertEqual(self.service.confirm("good", "student:a", "Teacher")[0], "added")
+    def test_people_at_the_reference_limit_are_not_queued(self):
+        self.add_event("near", mix((0, 0.46), (5, 0.888)))
+        self.assertEqual(len(self.service.queue(days=3)), 1)
+        self.assertEqual(self.service.queue(days=3)[0].best_camera_refs, 0)
+        with self.service.Session.begin() as session:
+            for k in range(self.service.reference_limit):
+                session.add(EduSchoolReferencePhoto(id=f"cam{k}", person_id="student:a", photo_path="x.jpg", source="local",
+                                                    image_checksum=f"cam{k}", embedding=axis(0).tolist(), active=True))
+        self.assertEqual(self.service.queue(days=3), [])
 
 if __name__ == "__main__":
     unittest.main()

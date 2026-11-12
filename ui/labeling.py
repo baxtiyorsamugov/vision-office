@@ -18,8 +18,8 @@ _SERVICE: FaceLabelingService | None = None
 
 
 @st.cache_resource
-def _service(_engine, threshold: float) -> FaceLabelingService:
-    return FaceLabelingService(_engine, recognition_threshold=threshold)
+def _service(_engine, threshold: float, reference_limit: int = 15) -> FaceLabelingService:
+    return FaceLabelingService(_engine, recognition_threshold=threshold, reference_limit=reference_limit)
 
 
 @st.cache_data(ttl=300, show_spinner="Ищу кадры для разметки…")
@@ -77,7 +77,8 @@ def _render_card(service, item, people, labels, actor, index):
             st.image([_abs(p) for p in item.group_photos[:3]], width=110)
         with guess:
             if item.best:
-                st.markdown(f"Система думает: **{item.best.name}**  \nсходство {item.best.score:.2f} (нужно > {service.threshold:.2f})")
+                st.markdown(f"Система думает: **{item.best.name}**  \nсходство {item.best.score:.2f} (нужно > {service.threshold:.2f}) · "
+                            f"кадров с камеры {item.best_camera_refs}/{service.reference_limit}")
                 _person_block(service, item.best.person_id, item.best.name)
                 if item.second:
                     st.caption(f"Второй вариант: {item.second.name} · {item.second.score:.2f}")
@@ -113,8 +114,9 @@ def render_labeling(engine, render_header) -> None:
     from core.eduschool.catalog import load_settings
 
     global _SERVICE
-    threshold = float(load_settings().recognition_threshold)
-    service = _SERVICE = _service(engine, threshold)
+    settings = load_settings()
+    threshold = float(settings.recognition_threshold)
+    service = _SERVICE = _service(engine, threshold, int(getattr(settings, "local_reference_photo_limit", 15)))
     version = st.session_state.get("labeling_version", 0)
     render_header("Разметка лиц", "Подтвердите, кто на кадре, — подтверждённые кадры становятся эталонами")
     flash = st.session_state.pop("labeling_flash", None)
@@ -132,7 +134,7 @@ def render_labeling(engine, render_header) -> None:
         cameras = _cameras()
         camera = f2.selectbox("Камера", [None] + cameras, format_func=lambda c: "Все камеры" if c is None else c)
         mode = f3.radio("Показать", ["Почти узнанные", "Все неизвестные с подсказкой"], horizontal=True)
-        st.caption("Кадры сверху, мелкие и размытые не показываются: такие эталоны путают систему. "
+        st.caption("Кадры сверху, мелкие и размытые не показываются, как и люди, у которых уже максимум кадров с камеры. "
                    "Эталон включается сразу, если кадр похож на этого человека больше, чем на других; иначе уходит админу.")
         items = _queue(threshold, days, camera, mode == "Почти узнанные", version)
         if not items:
