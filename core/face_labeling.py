@@ -34,6 +34,9 @@ NEAR_MISS_FLOOR = 0.40
 OWN_FLOOR = 0.30            # a new reference must resemble the person's own photos at least this much
 MIN_MARGIN = 0.05           # ...and beat the most similar OTHER person by this much
 NO_REF_OTHER_LIMIT = 0.45   # person without any photo: nobody else may look this similar
+MAIN_PHOTO_FLOOR = 0.30     # ...and resemble the main EduSchool photo, when there is one (stops reference drift:
+                            # 2026-11-12, a frame 0.50-similar to one camera frame but 0.27 to the main photo
+                            # caused 7 false attendance marks for another girl)
 
 
 @dataclass
@@ -272,11 +275,30 @@ class FaceLabelingService:
         if own < OWN_FLOOR:
             return CheckResult(False, own, other, other_pid, other_name,
                                f"Кадр мало похож на остальные фото этого человека ({own:.2f}). Нужна проверка админа.")
+        main = self.main_photo_score(vector, person_id)
+        if main is not None and main < MAIN_PHOTO_FLOOR:
+            return CheckResult(False, own, other, other_pid, other_name,
+                               f"Кадр мало похож на основное фото из EduSchool ({main:.2f}), хотя похож на один из кадров "
+                               f"с камеры ({own:.2f}). Так «дрейфуют» эталоны к чужому человеку. Нужна проверка админа.")
         if other is not None and own - other < MIN_MARGIN:
             return CheckResult(False, own, other, other_pid, other_name,
                                f"Кадр похож на {other_name} ({other:.2f}) почти так же, как на этого человека ({own:.2f}). "
                                "Нужна проверка админа.")
         return CheckResult(True, own, other, other_pid, other_name, "Проверка пройдена.")
+
+    def main_photo_score(self, vector, person_id: str) -> float | None:
+        """Best similarity to the person's active EduSchool (catalog) photos; None when there is none."""
+        with self.Session() as session:
+            rows = session.query(EduSchoolReferencePhoto.embedding).filter(
+                EduSchoolReferencePhoto.person_id == person_id, EduSchoolReferencePhoto.source == "eduschool",
+                EduSchoolReferencePhoto.active.is_(True)).all()
+        scores = []
+        for (embedding,) in rows:
+            try:
+                scores.append(float(normalized_embedding(embedding) @ normalized_embedding(vector)))
+            except (ValueError, TypeError, OverflowError):
+                continue
+        return max(scores) if scores else None
 
     def _log(self, session, *, event_id, decision, actor, person_id=None, reference_photo_id=None, detail=None,
              check: CheckResult | None = None) -> FaceLabelDecision:

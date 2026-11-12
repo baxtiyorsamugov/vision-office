@@ -107,6 +107,19 @@ class FaceLabelingTests(unittest.TestCase):
         self.service.dismiss(["near"], "Guard", kind="bad")
         self.assertEqual(self.service.queue(days=3), [])
 
+    def test_frame_unlike_main_photo_is_rejected_even_if_like_a_camera_frame(self):
+        # Alpha's main photo is axis 0; a camera reference of Alpha sits between axis 0 and axis 9.
+        with self.service.Session.begin() as session:
+            session.add(EduSchoolReferencePhoto(id="cam-a", person_id="student:a", photo_path="x.jpg", source="local",
+                                                image_checksum="cam-a", embedding=mix((0, 0.6), (9, 0.8)).tolist(), active=True))
+        # New frame resembles that camera reference (~0.6) but barely the main photo (~0.2): drift.
+        self.add_event("drift", mix((0, 0.2), (9, 0.98)))
+        decision, message = self.service.confirm("drift", "student:a", "Teacher")
+        self.assertEqual(decision, "rejected")
+        self.assertIn("основное фото", message)
+        # A frame that resembles the main photo too is accepted.
+        self.add_event("good", mix((0, 0.7), (9, 0.71)))
+        self.assertEqual(self.service.confirm("good", "student:a", "Teacher")[0], "added")
 
 if __name__ == "__main__":
     unittest.main()

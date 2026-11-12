@@ -10,6 +10,35 @@ Format: **Context** · **Decision** · **Evidence** · **Consequences** · **Rev
 
 ---
 
+## D-011 · 2026-11-12 · Reference drift: new references must resemble the main photo
+
+**Context.** Oxunjonova Robiya (student) was marked present on 09, 10 and 12.11 while
+absent on 10.11. 7 of her 9 marks matched only one reference: a camera frame imported on
+2026-11-06 from the 2026-11-03 journal review (frames recognised at 0.50–0.55 and confirmed by
+a person). That frame was 0.50-similar to one of her camera frames but only 0.27 to her
+EduSchool photo; the 7 event crops were 0.16–0.32 to her EduSchool photo, i.e. another girl.
+The 2 genuine marks (09.11 08:27, 12:00) were 0.50–0.57 to the EduSchool photo. All 9 were
+delivered to EduSchool.
+
+**Decision.** (1) Deactivate the 15 references imported on 2026-11-06 with similarity to the
+owner's EduSchool photo < 0.30 (`tools/sql/2026-11-12_deactivate_15_drift_refs.sql`).
+(2) The consistency check (labeling page and importer) also requires ≥ 0.30 similarity to the
+person's EduSchool photo when one exists (`MAIN_PHOTO_FLOOR`). Failures go to the admin tab.
+
+**Evidence.** The 15 share one signature: main-photo similarity 0.10–0.30 and ~0.50 to exactly
+one other camera frame. They include Fayziev (confirmed false on 2026-11-04) and Niyatullayeva
+("not sure" on 2026-11-06). 81 of 1098 local references overall have main-photo similarity
+< 0.30; the remaining 66 older ones need a human review (some owners have old EduSchool photos).
+
+**Consequences.** Journal-review rounds at 0.50–0.55 are the riskiest source of references:
+confirming "the system says X" on a lookalike chains a wrong face into X's gallery. The new rule
+blocks that chain. A runtime rule (require some main-photo support at match time) would have
+blocked the 7 false marks and kept the 2 real ones here, but must pass the replay bench first.
+
+**Revisit when.** The 66 older references are reviewed; the runtime rule is benchmarked.
+
+---
+
 ## D-010 · 2026-11-05 · Staff label faces in the dashboard, one confirmation + auto-check
 
 **Context.** Growth in recognition now depends on more camera-frame references
