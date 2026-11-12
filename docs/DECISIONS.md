@@ -35,7 +35,13 @@ confirming "the system says X" on a lookalike chains a wrong face into X's galle
 blocks that chain. A runtime rule (require some main-photo support at match time) would have
 blocked the 7 false marks and kept the 2 real ones here, but must pass the replay bench first.
 
-**Revisit when.** The 66 older references are reviewed; the runtime rule is benchmarked.
+**Follow-up (same day).** The admin reviewed the 66 older references on the drift page:
+55 removed, 11 kept (genuine, old EduSchool photo). Deactivated by
+`tools/sql/2026-11-12_deactivate_55_drift_refs.sql`; 42 people affected, none loses all camera
+frames. 9 of the 55 (11.11 labeling round) had no crop on the page and were removed
+conservatively (reversible).
+
+**Revisit when.** The runtime rule is benchmarked.
 
 ---
 
